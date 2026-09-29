@@ -16,6 +16,7 @@ python3 -c 'import sys; assert sys.version_info >= (3, 13), "Python 3.13+ requir
 # Serialize installers, including upgrades invoked by different operators.
 exec 9>/run/lock/y-scores-install.lock
 flock -n 9 || { echo 'Another y-scores install is running.' >&2; exit 1; }
+export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y python3-venv python3-dev build-essential cmake pkg-config curl
 getent group gpio >/dev/null || groupadd --system gpio
@@ -49,7 +50,11 @@ fi
 set -a
 source /etc/y-scores.env
 set +a
-previous=$(readlink -f /opt/y-scores/current || true)
+previous=''
+if [[ -L /opt/y-scores/current ]]; then
+  previous=$(readlink -f /opt/y-scores/current)
+  [[ -d $previous && $previous == /opt/y-scores/releases/* ]] || { echo 'Invalid current release link.' >&2; exit 1; }
+fi
 legacy_active=false
 if [[ -n $migrate_from ]] && systemctl is-active --quiet scoreboard-device.service; then legacy_active=true; fi
 activated=false
