@@ -1,0 +1,26 @@
+[Unit]
+Description=Y-Scores LED scoreboard and device admin
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=yscores
+Group=yscores
+SupplementaryGroups=gpio
+WorkingDirectory=/opt/y-scores/current
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=Y_SCORES_STATE_DIR=/var/lib/y-scores
+EnvironmentFile=/etc/y-scores.env
+ExecStart=/opt/y-scores/current/.venv/bin/python /opt/y-scores/current/device_admin.py
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=20
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/y-scores
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

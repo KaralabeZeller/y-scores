@@ -1,0 +1,9 @@
+__pycache__/
+.venv/
+state/
+*.log
+*.tmp
+device-config.json
+admin-pin.txt
+.env
+dist/

@@ -1,0 +1,4 @@
+numpy==2.5.3
+pillow==12.3.0
+bdfparser==2.2.0
+tzdata==2026.4; sys_platform == "win32"
