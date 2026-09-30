@@ -15,7 +15,7 @@ import time
 from urllib.parse import parse_qs, urlsplit
 from urllib.request import Request, urlopen
 from uuid import UUID
-import numpy as np
+from matrix_output import create_matrix, fill_framebuffer, TOPOLOGIES
 from PIL import Image
 from live_scoreboard import Feed, Renderer
 from device_model import DEFAULTS, validate_config, save_config, select_court, filtered_matches
@@ -76,7 +76,7 @@ class Device:
         with self.lock: self.feed=feed; self.active_id=match_id
         self.feed_threads=[]
         if feed:
-            for target in (feed.run,feed.run_colors):
+            for target in (feed.run,feed.run_colors,feed.run_events):
                 thread=threading.Thread(target=target,daemon=True); thread.start(); self.feed_threads.append(thread)
     def route(self):
         version=-1; last_refresh=0; schedule=None
@@ -227,6 +227,7 @@ def main():
     parser.add_argument('--fonts',type=Path,default=ROOT/'fonts')
     parser.add_argument('--config',type=Path,default=Path(os.environ.get('Y_SCORES_STATE_DIR',str(ROOT/'state')))/'device-config.json')
     parser.add_argument('--pin-file',type=Path,default=Path(os.environ.get('Y_SCORES_STATE_DIR',str(ROOT/'state')))/'admin-pin.txt')
+    parser.add_argument('--topology',choices=TOPOLOGIES,default=os.environ.get('Y_SCORES_TOPOLOGY','parallel'))
     parser.add_argument('--order',default=os.environ.get('Y_SCORES_ORDER','2,1,0'))
     parser.add_argument('--rotate',default=os.environ.get('Y_SCORES_ROTATE','180,0,0'))
     parser.add_argument('--pinout',choices=['Active3','Active3BGR'],default=os.environ.get('Y_SCORES_PINOUT','Active3BGR'))
@@ -241,24 +242,22 @@ def main():
     server=Server((args.bind,args.port),Handler); server.device=device; server.auth=Auth(args.pin_file)
     matrix=None
     if not args.no_hardware:
-        import adafruit_blinka_raspberry_pi5_piomatter as p
-        from adafruit_blinka_raspberry_pi5_piomatter.pixelmappers import simple_multilane_mapper
-        geometry=p.Geometry(width=64,height=192,n_addr_lines=5,n_planes=10,n_temporal_planes=2,n_lanes=6,map=simple_multilane_mapper(64,192,5,6))
-        framebuffer=np.zeros((192,64,3),dtype=np.uint8)
-        matrix=p.PioMatter(colorspace=p.Colorspace.RGB888Packed,pinout=getattr(p.Pinout,args.pinout),framebuffer=framebuffer,geometry=geometry)
+        matrix,framebuffer=create_matrix(args.topology,args.pinout)
     def stop(*_): device.stop.set()
     signal.signal(signal.SIGINT,stop); signal.signal(signal.SIGTERM,stop)
     threading.Thread(target=server.serve_forever,daemon=True).start()
     worker=threading.Thread(target=device.route,daemon=True); worker.start()
-    LOG.info('Device admin listening on port %s',args.port)
+    next_refresh_log=time.monotonic()+5
+    LOG.info('Device admin listening on port %s; topology=%s order=%s rotations=%s',args.port,args.topology,order,rotations)
     try:
         while not device.stop.is_set():
             image,brightness=device.render()
             if matrix:
-                for port,(tile,rotation) in enumerate(zip(order,rotations)):
-                    panel=image.crop((tile*64,0,tile*64+64,64)).rotate(rotation)
-                    framebuffer[port*64:port*64+64]=np.rint(np.asarray(panel).astype(np.float32)*brightness).astype(np.uint8)
+                fill_framebuffer(framebuffer,image,brightness,args.topology,order,rotations)
                 matrix.show()
+                if time.monotonic() >= next_refresh_log:
+                    LOG.info('Matrix hardware refresh: %.1f Hz',matrix.fps)
+                    next_refresh_log=time.monotonic()+60
             device.stop.wait(.05)
     finally:
         device.stop.set(); server.shutdown(); server.server_close(); worker.join(timeout=12)

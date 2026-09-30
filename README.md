@@ -8,12 +8,13 @@ and a local web page for choosing what to display.
 - Raspberry Pi **5**, current **64-bit Raspberry Pi OS (Python 3.13+)**.
 - Working `/dev/pio0` kernel device. The installer checks this before changing anything.
 - Adafruit Triple LED Matrix Bonnet / Active-3-compatible wiring and **three 64x64**
-  HUB75 panels on independent ports, arranged horizontally (192x64 logical pixels).
+  HUB75 panels on independent ports or daisy-chained from port 1, arranged
+  horizontally (192x64 logical pixels).
 - Separate suitable 5 V power for the panels. HUB75 ribbon cables carry data, not
   the panels' main power. The Pi uses its own supply; signal grounds are shared.
 - Network access to Y-Sports and the package repositories during installation.
 
-Pi 3/4, other geometries, and daisy-chain wiring require a different driver/configuration;
+Pi 3/4 and other geometries require a different driver/configuration;
 they are not supported by this installer. It does not install kernels or alter boot overlays.
 If `/dev/pio0` is missing, update the supported Raspberry Pi OS/kernel and reboot first.
 The reference device uses kernel `6.18.34+rpt-rpi-2712`, Python 3.13 and Piomatter 1.0.0.
@@ -75,7 +76,7 @@ Court selection requires stable court IDs in the public schedule. A standalone
 match with only a free-text venue is selectable by match ID, not by court. Court
 routing refreshes through a ten-second schedule cache. Match snapshots use a 200 ms
 cadence over a reused connection; network latency can still cause small clock corrections.
-Timers freeze and show OFFLINE after 15 seconds without a fresh accepted snapshot.
+Timers freeze and show OFFLINE after 15 seconds without a fresh accepted snapshot. The centre status line shows remaining timeout seconds during a team timeout, otherwise stays blank (except OFFLINE). Timeout timing uses the public timeout event recordedAt timestamp and the same 60-second duration as Match Center; resume clears it. The current API has no dedicated active-timeout state. Driver hardware refresh is logged periodically, independently of the approximately 20 Hz content loop.
 The app reads existing public Y-Sports APIs and never changes match data.
 
 ## Device configuration and operation
@@ -105,6 +106,33 @@ sudo cat /var/lib/y-scores/admin-pin.txt
 The PIN protects local control, with limited login attempts and 12-hour sessions.
 This HTTP admin is intended for a trusted LAN; do not expose it through router port
 forwarding. Restarting the service invalidates browser sessions but preserves the PIN.
+
+## Daisy-chain wiring
+
+Power off the Pi and panel supply before changing ribbon connections. Connect
+bonnet **port 1 → left panel IN → left OUT → centre IN → centre OUT → right IN**.
+Leave bonnet ports 2/3 disconnected. Each panel still needs its own 5 V power feed;
+HUB75 chaining does not distribute the panels' main power.
+
+Set these values in `/etc/y-scores.env` and restart `y-scores.service`:
+
+```sh
+Y_SCORES_TOPOLOGY=chain
+Y_SCORES_ORDER=2,1,0
+Y_SCORES_ROTATE=180,180,180
+```
+
+These values correct the observed prototype chain: transmitted tiles appear in reverse physical order, and all three panels require 180-degree rotation. Order and rotation entries
+refer to positions along the chain, starting at port 1. Parallel mode remains the
+default for existing installations; its entries refer to bonnet ports instead.
+The driver uses a 192x64 framebuffer and two RGB lanes in chain mode; parallel
+uses a 64x192 framebuffer and six lanes. The logical preview remains 192x64.
+Chaining offers less refresh headroom; verify flicker on the actual panels.
+
+Both entry points accept `--topology chain --order 2,1,0 --rotate 180,180,180`.
+To return to the original wiring, power down and restore the three separate ports,
+then set topology `parallel`, order `2,1,0`, rotations `180,0,0`. Software rollback
+alone does not restore wiring or environment settings; do both deliberately.
 
 ## Updates and rollback
 
@@ -159,3 +187,20 @@ needs its own power and data connection. Feet/kickstands should support upright 
 slightly tilted desk placement. There are **no printable enclosure CAD/STL files yet**.
 
 See `THIRD_PARTY_NOTICES.md` for font and brand-asset provenance.
+
+## Planned platform integration
+
+See [the implementation handover](docs/platform-integration-handover.md) for device
+identity, account pairing, platform assignments, management UI and backend/API work.
+These capabilities are planned; the current release uses local control.
+
+## Refresh tuning
+
+The prototype chain uses `Y_SCORES_COLOR_PLANES=6` and
+`Y_SCORES_TEMPORAL_PLANES=1` in `/etc/y-scores.env`: about 69 Hz measured by the
+driver, versus 44.6 Hz with the original 10/2 settings. This favours steady refresh
+over colour precision, without temporal dithering. Check actual team colours and
+dim indicators on the hardware; this is not a measured universal panel maximum.
+8/4 measured about 83 Hz, but distributes low colour bits across multiple refreshes
+and can cause brightness variation. Existing installations default to 10/2 if these
+variables are absent. Restart the service after changing settings.

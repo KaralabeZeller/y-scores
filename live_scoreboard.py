@@ -12,10 +12,10 @@ import time
 import unicodedata
 from urllib.request import Request, urlopen
 from uuid import UUID
-import numpy as np
+from matrix_output import create_matrix, fill_framebuffer, TOPOLOGIES
 from PIL import Image, ImageDraw
 from bdfparser import Font
-from live_state import MEDIA_TYPE, project, clock, primary_colors
+from live_state import MEDIA_TYPE, project, clock, primary_colors, timeout_seconds
 LOG = logging.getLogger('scoreboard')
 class Feed:
     def __init__(self, base, match, poll_interval=.2):
@@ -33,6 +33,35 @@ class Feed:
         self.snapshot = None
         self.received = 0
         self.stop = threading.Event()
+        self.events = []
+        self.events_revision = 0
+        self.events_url = self.url.removesuffix("/snapshot") + "/events"
+    def fetch_events(self):
+        with self.lock:
+            target = self.snapshot['revision'] if self.snapshot else 0
+            cursor = self.events_revision
+        while cursor < target and not self.stop.is_set():
+            request = Request(f'{self.events_url}?afterRevision={cursor}&limit=100',
+                              headers={'Accept': MEDIA_TYPE, 'Cache-Control': 'no-cache'})
+            with urlopen(request, timeout=3) as response:
+                page = json.load(response)
+            next_cursor = page['toRevision']
+            if next_cursor <= cursor:
+                raise ValueError('Event history did not advance')
+            with self.lock:
+                self.events.extend(page['events'])
+                self.events_revision = next_cursor
+            cursor = next_cursor
+
+    def run_events(self):
+        while not self.stop.is_set():
+            try:
+                self.fetch_events()
+            except Exception as error:
+                LOG.warning('Timeout history unavailable: %s', error)
+                self.stop.wait(2)
+            self.stop.wait(.2)
+
     def fetch_colors(self):
         try:
             with urlopen(Request(self.metadata_url,headers={"Cache-Control":"no-cache"}),timeout=5) as response:
@@ -86,6 +115,7 @@ class Feed:
         with self.lock:
             if not self.snapshot: return None
             view = project(self.snapshot,time.monotonic()-self.received)
+            view['timeout_seconds'] = timeout_seconds(self.snapshot,self.events,time.monotonic()-self.received) if self.events_revision >= self.snapshot['revision'] else None
             for team,color in zip(view["teams"],self.colors): team["color"] = color
             return view
 class Renderer:
@@ -112,7 +142,9 @@ class Renderer:
         text(clock(view['elapsed_seconds']),96,14,white,True)
         text('P'+str(view['period']),96,31,white)
         status={'RUNNING':'LIVE','FINISHED':'FINAL','PERIOD_COMPLETE':'BREAK'}.get(view['status'],view['status'])
-        text(status[:10],96,47,yellow if status=='OFFLINE' else dim)
+        remaining=view.get('timeout_seconds')
+        if status=='OFFLINE': text('OFFLINE',96,47,yellow)
+        elif remaining is not None: text(f'TO {remaining}s',96,47,yellow)
         for side,team in enumerate(view['teams']):
             offset=side*128
             color=team["color"]
@@ -143,6 +175,7 @@ def main():
     parser.add_argument('--fonts',type=Path,default=Path(__file__).parent/'fonts')
     parser.add_argument('--poll-interval',type=float,default=.2,help='Snapshot cadence in seconds (minimum .1)')
     parser.add_argument('--brightness',type=float,default=.08)
+    parser.add_argument('--topology',choices=TOPOLOGIES,default='parallel')
     parser.add_argument('--order',default='2,1,0')
     parser.add_argument('--rotate',default='180,0,0')
     parser.add_argument('--pinout',choices=['Active3','Active3BGR'],default='Active3BGR')
@@ -157,22 +190,17 @@ def main():
     if args.preview:
         feed.fetch_colors(); feed.fetch(); renderer.render(feed.view()).save(args.preview); feed.connection.close()
         return
-    import adafruit_blinka_raspberry_pi5_piomatter as p
-    from adafruit_blinka_raspberry_pi5_piomatter.pixelmappers import simple_multilane_mapper
-    geometry=p.Geometry(width=64,height=192,n_addr_lines=5,n_planes=10,n_temporal_planes=2,n_lanes=6,map=simple_multilane_mapper(64,192,5,6))
-    fb=np.zeros((192,64,3),dtype=np.uint8)
-    matrix=p.PioMatter(colorspace=p.Colorspace.RGB888Packed,pinout=getattr(p.Pinout,args.pinout),framebuffer=fb,geometry=geometry)
+    matrix,fb=create_matrix(args.topology,args.pinout)
     def stop(*_): feed.stop.set()
     signal.signal(signal.SIGINT,stop); signal.signal(signal.SIGTERM,stop)
     threading.Thread(target=feed.run_colors,daemon=True).start()
+    threading.Thread(target=feed.run_events,daemon=True).start()
     threading.Thread(target=feed.run,daemon=True).start()
     LOG.info('Live match %s; port order=%s rotations=%s pinout=%s',args.match_id,order,rotations,args.pinout)
     try:
         while not feed.stop.is_set():
             im=renderer.render(feed.view())
-            for port,tile in enumerate(order):
-                panel=im.crop((tile*64,0,tile*64+64,64)).rotate(rotations[port])
-                fb[port*64:port*64+64]=np.rint(np.asarray(panel).astype(np.float32)*args.brightness).astype(np.uint8)
+            fill_framebuffer(fb,im,args.brightness,args.topology,order,rotations)
             matrix.show(); feed.stop.wait(.05)
     finally:
         feed.stop.set(); fb.fill(0); matrix.show()
