@@ -1,0 +1,26 @@
+[Unit]
+Description=Y-Scores fixed verified application updater
+After=network-online.target y-scores.service
+Wants=network-online.target
+ConditionPathExists=/opt/y-scores/updater/root.json
+
+[Service]
+Type=simple
+User=root
+ExecStart=/opt/y-scores/updater/.venv/bin/python /opt/y-scores/updater/updater.py
+EnvironmentFile=/etc/y-scores.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Restart=on-failure
+RestartSec=15
+UMask=0022
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_DAC_READ_SEARCH
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/y-scores /var/lib/y-scores-updater /run/lock
+ReadOnlyPaths=/opt/y-scores/updater -/opt/y-scores/network-helper /var/lib/y-scores /etc/y-scores.env
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

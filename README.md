@@ -1,7 +1,7 @@
 # Y-Scores
 
 A portable Y-Sports scoreboard: three P2.5 64x64 RGB panels, a Raspberry Pi 5,
-and a local web page for choosing what to display.
+with Y-Sports management assignments and a local web page for setup and backup control.
 
 ## Supported device
 
@@ -57,27 +57,69 @@ Open **http://YOUR_PI.local:8080/** from a phone or computer on the same network
 If `.local` does not resolve, use the Pi's LAN IP. A fresh device shows the Y-Sports
 logo at 8% intensity until assigned. Each device gets its own PIN and settings.
 
-## Display modes
+## Display control
 
-- **Match:** choose a public standalone/tournament match, or paste its match UUID.
-- **Court:** choose a tournament and court; show the active or paused match, then
-  the next unfinished fixture between games. Completed/cancelled matches are skipped.
-- **Schedule:** rotate three fixtures per page, optionally filtered by court.
-- **Y-Sports:** display the official brand mark.
-- **Blank:** dark panels with the admin page still available.
+Assign a match, follow a court or show a scoped schedule from Y-Sports management.
+The local admin shows that assignment read-only; it has no platform match/court
+pickers or match UUID fields. The local `/api/config` rejects cloud selection
+modes and IDs, and catalog endpoints are removed. The device fetches central
+assignments and content through its authenticated outbound connection.
+
+Local backup modes are **Manual**, **Logo** and **Blank**. Selecting and saving one
+takes local control. Reconnection never interrupts this choice; explicitly choose
+**Return to platform control** when ready. Returning pauses the local manual clock.
+Saving brightness or timezone alone does not take control, replace an assignment
+or pause manual play. A new device defaults to the logo.
+
+Saved legacy Match/Court/Schedule configurations remain on disk for rollback,
+but the new runtime does not browse or resume them. It waits on the logo for a
+fresh central assignment; identity, PIN, network configuration and manual state
+are unchanged. Manual/Logo/Blank takeover persists across restart.
+
+Unpaired, revoked, disabled or disconnected devices cannot display platform data.
+Platform authorization expires after at most 35 seconds without successful status.
+Manual backup remains independent, including on the recovery hotspot.
+
+### Local handball control
+
+Unlock with the existing device PIN, choose **Manual**, then **Save display settings**.
+Use **Basic setup** to select Handball, name both teams, choose period duration
+and count, count up/down, timeouts allowed per team per match, and timeout/penalty
+duration. Defaults are two 30-minute periods, three timeouts per team, 60-second
+timeouts and 120-second penalties. Saving setup preserves an existing score;
+**Reset match** clears goals, penalties, timeout use and the clock, keeping setup.
+
+**Match controls** offers goals +/−, start/pause, next period, team timeouts and
+numbered player penalties. Penalties count down only during playing time and
+carry across periods. A timeout pauses the clock and consumes one allowance;
+expiry or End timeout leaves the clock paused until Start. Undo timeout count
+corrects the allowance; End timeout separately ends an active countdown.
+Remove a penalty with its × button. Basic setup also allows elapsed-clock
+correction while paused; this does not change already-served penalty time.
+Pause and end any timeout before changing periods, setup or resetting.
+
+State is private and persistent in `/var/lib/y-scores/manual-match.json`.
+Concurrent controllers must use the current revision, so a retried goal cannot
+be applied twice. Leaving Manual pauses its clock and ends an active countdown.
+A service restart/reboot pauses play at the last checkpoint, at most five
+seconds earlier; it preserves scores, timeout use and remaining penalties and
+clears an active timeout countdown. Review the clock before resuming after an
+outage. Normal updates retain this state. Before rolling back to a release
+without Manual support, apply Logo first; the older release will retain the
+manual-match file but cannot operate it. Rolling back also restores that
+release's older platform-access behavior.
 
 The page includes a live preview, intensity control and schedule timezone. Settings
-are saved when you choose **Apply to display**. Names, scores and timeout markers use
+are saved when you choose **Save display settings**. Names, scores and timeout markers use
 team primary colours. Both penalty counters use the same yellow RGB value; physical
 colour consistency still depends on the panels and pin mapping. Intensity is not a
 hardware current limiter.
 
-Court selection requires stable court IDs in the public schedule. A standalone
-match with only a free-text venue is selectable by match ID, not by court. Court
-routing refreshes through a ten-second schedule cache. Match snapshots use a 200 ms
-cadence over a reused connection; network latency can still cause small clock corrections.
-Timers freeze and show OFFLINE after 15 seconds without a fresh accepted snapshot. The centre status line shows remaining timeout seconds during a team timeout, otherwise stays blank (except OFFLINE). Timeout timing uses the public timeout event recordedAt timestamp and the same 60-second duration as Match Center; resume clears it. The current API has no dedicated active-timeout state. Driver hardware refresh is logged periodically, independently of the approximately 20 Hz content loop.
-The app reads existing public Y-Sports APIs and never changes match data.
+Platform court resolution happens on the server using typed scope and an operating
+window. The Pi receives the effective match. Match snapshots poll at 200 ms;
+network latency may cause small clock corrections. Timers freeze and show OFFLINE
+after 15 seconds without a fresh snapshot. Driver refresh is measured independently
+of the approximately 20 Hz content loop. The Pi never writes match data.
 
 ## Device configuration and operation
 
@@ -86,8 +128,9 @@ The app reads existing public Y-Sports APIs and never changes match data.
 | `/opt/y-scores/releases/` | Versioned code and isolated Python environments |
 | `/opt/y-scores/current` | Active release symlink |
 | `/opt/y-scores/previous` | Previous successful release |
-| `/var/lib/y-scores/device-config.json` | Saved match/court, mode, intensity, timezone |
+| `/var/lib/y-scores/device-config.json` | Saved backup mode, intensity/timezone and preserved legacy selection |
 | `/var/lib/y-scores/admin-pin.txt` | Device PIN; readable only by the service user/root |
+| `/var/lib/y-scores/manual-match.json` | Private local handball setup, scores and clock checkpoints |
 | `/etc/y-scores.env` | Port, bind address, API URL, panel order/rotation/pinout |
 
 The default port mapping preserves the prototype: port 1 = right rotated 180 degrees,
@@ -136,6 +179,38 @@ alone does not restore wiring or environment settings; do both deliberately.
 
 ## Updates and rollback
 
+Revoked account credentials cannot generate a pairing PIN. For account changes
+use **Unpair device** in Y-Sports; **Revoke credential** is for lost/compromised
+credentials and needs the recovery procedure below.
+
+### Recover a revoked credential
+
+1. An administrator opens **Management → All devices → the revoked device →
+   Generate recovery code**. The twelve-digit code is bound to that device and
+   valid for ten minutes; generating another invalidates the earlier code.
+2. Unlock this Pi's local admin with its existing six-digit admin PIN and enter
+   the code under **Recover a revoked credential**. Recovery replaces the
+   platform secret and clears ownership, while preserving the locked device ID,
+   name, local admin PIN, display/manual state, networking and audit history.
+3. Choose **Generate pairing PIN**, then enter the new eight-digit PIN in
+   Y-Sports **My devices → Add device** for the intended account.
+
+The revoked secret stays invalid. A code alone is not the new platform secret;
+the Pi generates a fresh random secret privately, saves a pending candidate
+before transmission, and commits it only after server confirmation. If a
+response is lost or the Pi restarts, it tests the candidate with an authenticated
+status request before retrying. Neither persistent secret is returned to the
+browser, and the recovery code is not saved on the Pi. A failed code preserves
+the old identity and pending candidate for a safe retry. No reset by name/UUID
+and no automatic reactivation of revoked credentials is supported.
+
+This requires the Y-Sports backend/management recovery release (Flyway V58) as
+well as the Pi update. Updating only the Pi cannot authorize recovery on an older
+server. Keep both secrets' protected state during a rollback with recovery pending;
+older software cannot complete the pending operation.
+
+### Software updates
+
 Download and extract a newer release into a fresh folder, then run its installer.
 For a clean clone, `git pull --ff-only` followed by `sudo bash scripts/install.sh`
 is also supported. Settings and the PIN remain in `/var/lib/y-scores`; an update
@@ -146,7 +221,10 @@ sudo bash scripts/rollback.sh
 ```
 
 Rollback switches to the previous code/environment and checks readiness; it does not
-rewind device settings. Back up `/var/lib/y-scores` and `/etc/y-scores.env` separately
+rewind device settings. Compatible helper releases restart the helper after a
+successful rollback; rolling back before the setup bridge disables the helper
+while retaining network profiles/credentials. Re-enable it through a bridge
+installer when returning to a compatible release. Back up `/var/lib/y-scores` and `/etc/y-scores.env` separately
 if you need a complete device backup. Never put these files in Git.
 
 ## Migrate the original prototype
@@ -188,11 +266,102 @@ slightly tilted desk placement. There are **no printable enclosure CAD/STL files
 
 See `THIRD_PARTY_NOTICES.md` for font and brand-asset provenance.
 
-## Planned platform integration
+## First-time setup and account pairing
+
+New devices show paged local setup instructions and their unique six-digit admin
+PIN on the physical panels until setup is completed. Open the local hostname/IP,
+unlock, save a device name, optionally generate an eight-digit pairing PIN and
+enter it in **My devices** in Y-Sports management. Then finish setup and choose
+local display settings. There are no QR codes or public discovery directory.
+The pairing PIN is temporary and separate from the local admin PIN. The first
+signed-in account redeeming it becomes the owner. Restart or a lost claim response
+requires a new PIN; the device secret is never sent to the local browser.
+
+The advanced UUID field is editable until the first identity save, then locked.
+Renaming changes the metadata revision. The protected, versioned
+`/var/lib/y-scores/device-identity.json` stores identity and the random device
+credential independently of the legacy display config. Bootstrap retries reuse
+that credential. Never delete it to work around a registration conflict: contact
+a platform administrator for assisted recovery. Registration and ownership are
+separate. A bootstrap conflict stops this worker's outbound registration retries
+until restart and reports operator recovery; a temporary connection failure still
+retries with the same identity and credential. Do not repeatedly restart a board
+to work around a conflict.
+Existing devices keep their display settings and PIN and skip initial
+credential disclosure; save a name in the setup panel before linking an account.
+
+The account connection switch enables registration, pairing/status polling and
+heartbeats. Display control remains **local** in this release. Turning the switch
+off first cancels a pending claim; it keeps ownership. Server errors are reported
+without secrets. HTTPS is required unless explicitly enabling local development
+with `Y_SCORES_ALLOW_HTTP_PLATFORM=1`. Configure the trusted API base in
+`Y_SCORES_PLATFORM_API`; credential-bearing requests never follow redirects.
+
+## Optional protected network recovery (Pi validation required)
+
+Ethernet and Wi-Fi provisioned using Raspberry Pi Imager work without the helper.
+The narrow root helper is opt-in and has not yet been validated on a physical Pi.
+Before enabling it, confirm NetworkManager manages `wlan0`, `nmcli`, `busctl`,
+`iw` and `nft` are installed, the radio supports WPA AP mode, and checkpoint
+create/rollback work on your supported Pi OS. Set `Y_SCORES_WIFI_COUNTRY` to the
+actual two-letter country in the root-owned `/etc/y-scores.env`. The installer and
+helper verify that the regulatory setting was accepted before opening an AP.
+
+```sh
+sudo bash scripts/install.sh --enable-network-helper
+```
+
+After 90 seconds without an Ethernet/Wi-Fi link, it opens a unique password-
+protected `Y-Scores-Setup-XXXX` network at `http://192.168.4.1:8080/` (or the
+configured admin port). The password and SSID survive updates in the root-only
+`/var/lib/y-scores-network/network-state.json`. nftables allows DHCP and the local
+admin page and blocks SSH, IPv6 and forwarding from/to the recovery interface;
+clients cannot use the AP to reach the venue LAN. The network password grants
+network access; the local admin PIN still protects settings. Cloud outages alone
+never open the hotspot. Use Ethernet if recovery hardware is unavailable.
+
+Wi-Fi changes create a new NetworkManager profile and checkpoint while retaining
+saved profiles. Passwords are supplied through mode-0600 keyfiles, never process
+arguments/logs. Only WPA passphrase networks are supported in this slice. Hidden
+SSID entry is supported; enterprise/open networks require provisioning outside
+this UI. After switching, join the new network, reopen the local address, unlock
+if needed and **Confirm this network works** within 75 seconds (less if connection
+setup exhausted the checkpoint window). Confirmation
+checks the candidate Wi-Fi UUID and IPv4 address; Ethernet alone cannot pass it.
+An unconfirmed/failed change rolls back and deletes only its trial profile.
+NetworkManager has an independent 120-second checkpoint timeout if the helper
+dies; the protected journal removes interrupted trials on helper restart/reboot.
+The AP retries saved networks after fifteen minutes without an authenticated
+local admin action, then reopens after the grace period if needed. Status polling
+and unauthenticated clients do not extend this idle period. **Open recovery
+hotspot** is a local PIN-protected action. Isolation stays enabled throughout
+Wi-Fi checkpoint testing, including helper failure and NetworkManager's automatic
+rollback to the AP. Only station DHCP and local admin remain available during
+that window; normal station networking resumes after explicit confirmation.
+
+First-run panel pages display hotspot credentials when recovery is active.
+After setup, active recovery still shows the hotspot password/URL on the panels,
+but never the saved admin PIN. The recovery password/URL is also available to the
+PIN-protected admin UI; retain a per-unit label as a backup. Verifying the physical
+recovery journey is a hardware-pilot gate.
+
+The helper uses a root-owned service and a local Unix socket restricted by file
+permissions and peer UID to `yscores`; the app has no sudo/arbitrary-shell access.
+No inbound cloud access to the Pi is needed. The local web server validates its
+hostname/port and Origin, and session CSRF tokens protect mutations. If using a
+custom local hostname, explicitly add it to `Y_SCORES_ALLOWED_HOSTS`.
+
+Back up `/var/lib/y-scores`, `/var/lib/y-scores-network`,
+`/etc/NetworkManager/system-connections` and `/etc/y-scores.env` privately. Never
+clone a provisioned SD card as a factory image: credentials must be unique.
+
+## Platform integration follow-ups
 
 See [the implementation handover](docs/platform-integration-handover.md) for device
 identity, account pairing, platform assignments, management UI and backend/API work.
-These capabilities are planned; the current release uses local control.
+Identity, pairing, health telemetry, authorized cloud assignments and scoped
+match/schedule feeds are implemented. The backend resolves automatic courts.
+Signed remote software updates remain a future slice.
 
 ## Refresh tuning
 
@@ -204,3 +373,145 @@ dim indicators on the hardware; this is not a measured universal panel maximum.
 8/4 measured about 83 Hz, but distributes low colour bits across multiple refreshes
 and can cause brightness variation. Existing installations default to 10/2 if these
 variables are absent. Restart the service after changing settings.
+
+
+## Match Center device health and remote selection
+
+The `display-health-v1` and `remote-selection-v1` capabilities enable the
+Match Center Device tab. Authenticated outbound heartbeats report bounded
+health observations every 15 seconds. The server opens a boot-bound telemetry
+session; increasing report sequences reject old or reordered reports. No inbound
+Pi control port or SSH credential is required for remote match selection.
+
+The backend resolves fixed matches and typed court assignments. It returns an
+effective match plus a separate control revision. The Pi acknowledges a revision
+only after rendering that match (or the requested logo). Heartbeat visibility does
+not prove that the LEDs, power or cabling are physically working. Frame age and
+successful hardware-output age are distinct, and simulator output is explicit.
+Unsupported CPU, system uptime and throttling probes remain unavailable. Health
+reports exclude PINs, device secrets, network names, private addresses and logs.
+
+Applying local Manual, Logo or Blank takes local control and cannot be interrupted
+by a cloud assignment. Match/Court/Schedule selection is performed only in Y-Sports management. Legacy
+selection settings are retained for rollback but no longer resume locally. Select **Return to platform
+control** in the PIN-protected local admin to allow the next authenticated server
+selection. The default logo on a new, unconfigured device does not block its first
+assignment. Existing saved Manual/Logo/Blank settings migrate conservatively to
+local takeover. Accepted control revision and takeover are kept separately in
+`/var/lib/y-scores/device-control.json`; protect and back up this file along with
+identity, PIN, display settings and manual-match state. Reboot does not resume a
+cloud selection until a fresh authenticated server response authorizes it.
+
+Upgrade the Y-Sports backend/management first, then the Pi with the existing
+installer. Preserve all of `/var/lib/y-scores` and `/etc/y-scores.env`. An older
+backend without telemetry sessions retains basic registration and pairing; newer
+health and remote-selection features remain unavailable until it is upgraded.
+The ordinary rollback script selects the previous release without removing new
+state; older software ignores the extra control file. No network helper privileges
+or configuration are changed by this feature.
+
+
+Remote assignments fetch private match metadata, snapshots and operation events
+through the scoped device-authenticated API. Each read rechecks the current desired
+match and paired credential. Credentials remain bound to the configured HTTPS
+platform origin and redirects are rejected. The standalone legacy public-match CLI keeps its anonymous transport; the
+admin service uses authenticated platform content only. Capability changes on existing installations persist
+a new metadata revision before transmission, so a lost upgrade response retries
+the same revision without changing identity or device credentials.
+
+
+### Remote schedule support
+
+`remote-schedule-v1` adds an authenticated `GET /scoreboard-device/schedule`
+feed. The server binds it to the effective typed scope, optional court and explicit
+operating window, returns at most 100 fixtures, and supplies the control revision.
+The Pi caps this response at 256 KiB, refreshes every five seconds, and accepts only
+the current revision. It acknowledges SCHEDULE only after a fresh schedule frame
+and successful physical output submission (simulator output remains explicit).
+Schedule frames never infer a selected or rendered platform match from team names.
+Schedule feed age is reported separately from frame and output age. Fetch failure
+or data older than 15 seconds falls back to logo with unhealthy feed status. A
+session, ownership or assignment change clears cached private fixtures. Temporary
+MATCH overrides and Return to assignment preserve the server's base schedule.
+Upgrade backend/management before installing this capability on the Pi.
+# Verified remote application updates
+
+Remote updating is an optional bootstrap component. Install it from a trusted
+checkout on Raspberry Pi 5, aarch64, Raspberry Pi OS Trixie and Python 3.13:
+
+```bash
+sudo bash scripts/install.sh --enable-updater --trust-root /protected/root.json
+```
+
+The public root must come from the operator's reviewed TUF signing ceremony.
+The installer checks its self-signatures, copies it once, and does not silently
+replace an existing root. Signing private keys never belong on the Pi. Updates
+remain unavailable until this real trust root, signed catalog and backend update
+configuration are provisioned. The bootstrap installer can install dependencies;
+remote jobs never invoke it, apt, a network pip install or release shell scripts.
+
+Owners request approved Stable versions in Y-Sports; administrators manage
+approvals, interruption and compatible downgrade. The Pi verifies signed TUF
+metadata, expiration and rollback protections with `tuf==7.0.1`, and verifies
+the exact archive length, hash, file manifest, platform and state format before
+building an offline environment from hash-pinned binary wheels. Authenticated
+downloads use only the configured Y-Sports proxy and never follow redirects or
+send device credentials to GitHub. Archive links, devices, unsafe paths,
+duplicates and oversized contents are rejected; free space is checked before
+extraction. The persistent installed sequence prevents silent downgrade.
+
+The updater runs independently from `/opt/y-scores/updater/`. The root network
+helper also runs fixed bootstrap code in `/opt/y-scores/network-helper/`, so
+application releases cannot replace either privileged service. The updater has
+only `CAP_DAC_READ_SEARCH` to read the existing private device identity and PIN;
+state permissions remain 0700/0600. Candidate renderer checks run as `yscores`
+through systemd. Application activation and operator installers share
+`/run/lock/y-scores-install.lock`.
+
+Local admin shows update state and provides 1-hour/24-hour deferral and resume.
+Manual, Logo and Blank takeover protects an intentional local event even when
+the clock is paused. Active or unknown match state waits for idle; explicit
+administrator NOW permission may interrupt that match, but cannot override a
+local deferral or network operation. Immediately before stopping the display,
+the updater reserves local controls and rechecks the current server lease,
+ownership, cancellation, approval, exact installed version and activation
+deadline. A disconnected authorization cannot activate an update.
+
+Activation stops the sole hardware writer, switches the `current` symlink and
+starts the new display. Success requires a minute of consecutive fresh renderer,
+hardware output, authenticated admin and valid-state evidence within 90 seconds,
+and unchanged device ID, credential, admin PIN and environment. Identity,
+settings, manual state and network profiles stay outside releases. The installed
+version and sequence are read from `app/release.json`; development installations
+use `Y_SCORES_VERSION` only as a fallback.
+
+The fsynced journal, TUF cache and safe public status live in
+`/var/lib/y-scores-updater/`. Restart after power loss during stop, switch or health
+checks conservatively restores the retained previous release before considering
+another cloud job. Failed readiness automatically rolls back without depending
+on the new app or cloud. `scripts/rollback.sh` remains an operator fallback and
+keeps the fixed network helper. A rollback failure is retained as an explicit
+failure; it is never reported as successful installation. Remote jobs update the
+application only: OS/kernel, privileged helpers, services and TUF bootstrap
+changes require an operator installation. Keep the last-good release and do not
+manually delete updater journals or trusted metadata to bypass replay checks.
+
+## Permanent application release publication
+
+Numeric vMAJOR.MINOR.PATCH tags on main trigger the ARM64 release workflow.
+Configure immutable GitHub releases, the pi-releases/pi-catalog environments,
+three online TUF role secrets and the reviewed public update-trust/root.json
+first. Keep the three root private keys offline and outside the checkout.
+
+The workflow publishes the application archive, release.json and SHA256SUMS,
+then commits signed metadata to updates-catalog. Daily metadata renewal does
+not rebuild application files. If catalog publication fails after immutable
+assets were published, use Recover immutable release catalog publication with
+the existing tag; never replace published assets. Approve Pilot/Stable in
+Y-Sports Management > Devices after catalog sync.
+
+Operator tools: scripts/provision_update_trust.py provisions new trust;
+scripts/renew_update_root.py performs threshold-signed expiry renewal with
+unchanged keys. Both are offline ceremonies, never automatic Pi trust changes.
+See the Y-Sports docs/scoreboard-software-updates.md runbook for the complete
+production bootstrap, signing custody and Pilot hardware acceptance steps.

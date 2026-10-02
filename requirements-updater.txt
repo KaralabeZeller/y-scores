@@ -1,0 +1,4 @@
+# Fixed bootstrap dependency; application releases cannot replace this environment.
+tuf==7.0.1
+securesystemslib[crypto]==1.3.1
+urllib3==2.8.0

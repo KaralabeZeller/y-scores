@@ -12,6 +12,10 @@ ln -sfn "$previous" /opt/y-scores/current
 systemctl start y-scores
 for _ in $(seq 1 25); do
   if systemctl is-active --quiet y-scores && curl -fsS --max-time 2 "http://127.0.0.1:${Y_SCORES_PORT:-8080}/healthz" >/dev/null; then
+    if systemctl is-enabled --quiet y-scores-network.service 2>/dev/null; then
+      # Fixed helper survives application rollback independently.
+      systemctl restart y-scores-network.service
+    fi
     ln -sfn "$current" /opt/y-scores/previous
     echo "Restored $previous; settings unchanged."; exit 0
   fi

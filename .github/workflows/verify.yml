@@ -8,12 +8,12 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.13'
           cache: pip
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements.txt -r requirements-release.txt
       - run: python -m unittest discover -p 'test_*.py'
       - run: node --check admin.js
       - run: for script in scripts/*.sh; do bash -n "$script"; done

@@ -7,3 +7,7 @@ device-config.json
 admin-pin.txt
 .env
 dist/
+
+# Private release signing material belongs outside the checkout.
+*.pem
+release-signing/

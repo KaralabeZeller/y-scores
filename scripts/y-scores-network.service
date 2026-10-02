@@ -1,0 +1,28 @@
+[Unit]
+Description=Y-Scores protected NetworkManager recovery helper
+After=NetworkManager.service
+Requires=NetworkManager.service
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 /opt/y-scores/network-helper/network_helper.py
+EnvironmentFile=/etc/y-scores.env
+User=root
+Group=yscores
+Restart=on-failure
+RestartSec=5
+RuntimeDirectory=y-scores-network
+RuntimeDirectoryMode=0750
+StateDirectory=y-scores-network
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+CapabilityBoundingSet=CAP_NET_ADMIN
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/etc/NetworkManager/system-connections /var/lib/y-scores-network /run/y-scores-network /run/lock
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

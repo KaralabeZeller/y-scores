@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 DEFAULTS = dict(mode='logo',match_id='',
                 tournament_id='',court_id='',brightness=.08,timezone='Europe/Budapest')
-MODES = {'match','court','schedule','logo','blank'}
+MODES = {'match','court','schedule','logo','blank','manual'}
 LIVE = {'IN_PROGRESS','RUNNING','PAUSED','PERIOD_COMPLETE','LIVE'}
 DONE = {'FINISHED','ENDED','COMPLETED','CANCELLED','CANCELED'}
 

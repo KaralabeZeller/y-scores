@@ -1,0 +1,75 @@
+name: Recover immutable release catalog publication
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing immutable release tag whose catalog publication needs retry
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: y-scores-release-publisher
+  cancel-in-progress: false
+
+jobs:
+  recover:
+    runs-on: ubuntu-24.04
+    environment: pi-releases
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - run: python -m pip install -r requirements-release.txt
+      - name: Download exact immutable assets without rebuilding or replacing
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -c 'import os; from scripts.build_release import release_identity; release_identity(os.environ["RELEASE_TAG"])'
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.immutable')" = true
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.draft')" = false
+          mkdir -p "$RUNNER_TEMP/release"
+          gh release download "$RELEASE_TAG" --dir "$RUNNER_TEMP/release" \
+            --pattern "y-scores-$RELEASE_TAG-pi5-aarch64-py313.tar.gz" \
+            --pattern release.json --pattern SHA256SUMS
+          python -c 'import hashlib,json,os,pathlib; p=pathlib.Path(os.environ["RUNNER_TEMP"])/"release"; t=os.environ["RELEASE_TAG"]; n=f"y-scores-{t}-pi5-aarch64-py313.tar.gz"; assert json.loads((p/"release.json").read_bytes())["releaseId"]==t; assert (p/"SHA256SUMS").read_text().strip()==hashlib.sha256((p/n).read_bytes()).hexdigest()+"  "+n'
+      - name: Verify and sign catalog entry
+        shell: bash
+        env:
+          TUF_TARGETS_KEY_PEM: ${{ secrets.TUF_TARGETS_KEY_PEM }}
+          TUF_SNAPSHOT_KEY_PEM: ${{ secrets.TUF_SNAPSHOT_KEY_PEM }}
+          TUF_TIMESTAMP_KEY_PEM: ${{ secrets.TUF_TIMESTAMP_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          test -r update-trust/root.json
+          gh auth setup-git
+          catalog="$RUNNER_TEMP/catalog"
+          mkdir -p "$catalog"
+          git -C "$catalog" init
+          git -C "$catalog" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C "$catalog" ls-remote --heads origin updates-catalog > "$RUNNER_TEMP/catalog-ref"
+          if test -s "$RUNNER_TEMP/catalog-ref"; then
+            git -C "$catalog" fetch --depth=1 origin updates-catalog
+            git -C "$catalog" checkout -b updates-catalog FETCH_HEAD
+          else
+            git -C "$catalog" checkout --orphan updates-catalog
+          fi
+          python scripts/publish_update_metadata.py --metadata-dir "$catalog/metadata" \
+            --root update-trust/root.json \
+            --artifact "$RUNNER_TEMP/release/y-scores-$RELEASE_TAG-pi5-aarch64-py313.tar.gz" \
+            --release-json "$RUNNER_TEMP/release/release.json"
+          git -C "$catalog" config user.name 'github-actions[bot]'
+          git -C "$catalog" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$catalog" add metadata
+          git -C "$catalog" commit -m "Recover signed catalog for $RELEASE_TAG"
+          git -C "$catalog" push origin HEAD:updates-catalog

@@ -18,8 +18,9 @@ from bdfparser import Font
 from live_state import MEDIA_TYPE, project, clock, primary_colors, timeout_seconds
 LOG = logging.getLogger('scoreboard')
 class Feed:
-    def __init__(self, base, match, poll_interval=.2):
+    def __init__(self, base, match, poll_interval=.2, device_request=None):
         self.match = str(UUID(match))
+        self.device_request=device_request
         self.url = f'{base.rstrip("/")}/public/matches/{self.match}/operations/snapshot'
         endpoint = urlsplit(self.url)
         if endpoint.scheme not in ("http", "https"): raise ValueError("HTTP(S) API required")
@@ -41,10 +42,13 @@ class Feed:
             target = self.snapshot['revision'] if self.snapshot else 0
             cursor = self.events_revision
         while cursor < target and not self.stop.is_set():
-            request = Request(f'{self.events_url}?afterRevision={cursor}&limit=100',
-                              headers={'Accept': MEDIA_TYPE, 'Cache-Control': 'no-cache'})
-            with urlopen(request, timeout=3) as response:
-                page = json.load(response)
+            if self.device_request:
+                page=self.device_request('GET',f'/matches/{self.match}/operations/events?afterRevision={cursor}&limit=20')
+            else:
+                request = Request(f'{self.events_url}?afterRevision={cursor}&limit=100',
+                                  headers={'Accept': MEDIA_TYPE, 'Cache-Control': 'no-cache'})
+                with urlopen(request, timeout=3) as response:
+                    page = json.load(response)
             next_cursor = page['toRevision']
             if next_cursor <= cursor:
                 raise ValueError('Event history did not advance')
@@ -64,8 +68,11 @@ class Feed:
 
     def fetch_colors(self):
         try:
-            with urlopen(Request(self.metadata_url,headers={"Cache-Control":"no-cache"}),timeout=5) as response:
-                colors = primary_colors(json.load(response))
+            if self.device_request:
+                colors=primary_colors(self.device_request('GET',f'/matches/{self.match}'))
+            else:
+                with urlopen(Request(self.metadata_url,headers={"Cache-Control":"no-cache"}),timeout=5) as response:
+                    colors = primary_colors(json.load(response))
             with self.lock:
                 if colors != self.colors: LOG.info("Team primary colors: %s", colors)
                 self.colors = colors
@@ -78,11 +85,14 @@ class Feed:
     def fetch(self):
         started = time.monotonic()
         try:
-            self.connection.request('GET',self.snapshot_path,headers={'Accept':MEDIA_TYPE,'Cache-Control':'no-cache'})
-            response = self.connection.getresponse()
-            body = response.read()
-            if response.status != 200: raise RuntimeError(f'Snapshot HTTP {response.status}')
-            payload = json.loads(body)
+            if self.device_request:
+                payload=self.device_request('GET',f'/matches/{self.match}/operations/snapshot')
+            else:
+                self.connection.request('GET',self.snapshot_path,headers={'Accept':MEDIA_TYPE,'Cache-Control':'no-cache'})
+                response = self.connection.getresponse()
+                body = response.read()
+                if response.status != 200: raise RuntimeError(f'Snapshot HTTP {response.status}')
+                payload = json.loads(body)
         except Exception:
             self.connection.close()
             raise
@@ -115,6 +125,7 @@ class Feed:
         with self.lock:
             if not self.snapshot: return None
             view = project(self.snapshot,time.monotonic()-self.received)
+            view['match_id']=self.match; view['match_revision']=self.snapshot['revision']
             view['timeout_seconds'] = timeout_seconds(self.snapshot,self.events,time.monotonic()-self.received) if self.events_revision >= self.snapshot['revision'] else None
             for team,color in zip(view["teams"],self.colors): team["color"] = color
             return view

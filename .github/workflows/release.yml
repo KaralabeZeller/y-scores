@@ -1,0 +1,122 @@
+name: Publish Pi application release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing numeric release tag (vMAJOR.MINOR.PATCH)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: y-scores-release-publisher
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04-arm
+    environment: pi-releases
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-pi.txt
+            requirements-release.txt
+      - name: Validate source and release prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          test "$(uname -m)" = aarch64
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "$RELEASE_TAG^{commit}")"
+          git merge-base --is-ancestor HEAD origin/main
+          test -r update-trust/root.json
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            echo 'Release already exists. Never replace its assets; use a new version.' >&2
+            exit 1
+          fi
+      - name: Install build tools and verify source
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake pkg-config
+          python -m pip install -r requirements.txt -r requirements-release.txt
+          python -m unittest discover -p 'test_*.py'
+          node --check admin.js
+          for script in scripts/*.sh; do bash -n "$script"; done
+          git diff --check
+      - name: Build ARM64 dependency wheels and immutable bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/wheels" "$RUNNER_TEMP/release"
+          python -m pip wheel --wheel-dir "$RUNNER_TEMP/wheels" -r requirements-pi.txt
+          git log -1 --format=%s > "$RUNNER_TEMP/release-notes.txt"
+          python scripts/build_release.py --wheels "$RUNNER_TEMP/wheels" \
+            --output "$RUNNER_TEMP/release" --tag "$RELEASE_TAG" \
+            --commit "$(git rev-parse HEAD)" --epoch "$(git show -s --format=%ct HEAD)" \
+            --notes "$RUNNER_TEMP/release-notes.txt"
+          python3 -m venv "$RUNNER_TEMP/offline-validation"
+          tar -xzf "$RUNNER_TEMP/release/y-scores-$RELEASE_TAG-pi5-aarch64-py313.tar.gz" -C "$RUNNER_TEMP/release"
+          "$RUNNER_TEMP/offline-validation/bin/python" -m pip install \
+            --no-index --only-binary=:all: --require-hashes \
+            --find-links "$RUNNER_TEMP/release/wheels" -r "$RUNNER_TEMP/release/requirements.lock"
+          "$RUNNER_TEMP/offline-validation/bin/python" -m pip check
+          "$RUNNER_TEMP/offline-validation/bin/python" -c 'import numpy, PIL, bdfparser'
+      - name: Publish complete draft, then require immutable release
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" --verify-tag --draft --title "Y-Scores $RELEASE_TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.txt" \
+            "$RUNNER_TEMP/release/y-scores-$RELEASE_TAG-pi5-aarch64-py313.tar.gz" \
+            "$RUNNER_TEMP/release/release.json" "$RUNNER_TEMP/release/SHA256SUMS"
+          gh release edit "$RELEASE_TAG" --draft=false
+          test "$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$RELEASE_TAG" --jq '.immutable')" = true || {
+            echo 'Enable immutable releases in repository settings before publishing. Mutable release will not enter update catalog.' >&2
+            exit 1
+          }
+      - name: Sign and publish update catalog
+        shell: bash
+        env:
+          TUF_TARGETS_KEY_PEM: ${{ secrets.TUF_TARGETS_KEY_PEM }}
+          TUF_SNAPSHOT_KEY_PEM: ${{ secrets.TUF_SNAPSHOT_KEY_PEM }}
+          TUF_TIMESTAMP_KEY_PEM: ${{ secrets.TUF_TIMESTAMP_KEY_PEM }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          catalog="$RUNNER_TEMP/catalog"
+          mkdir -p "$catalog"
+          git -C "$catalog" init
+          git -C "$catalog" remote add origin "https://github.com/$GITHUB_REPOSITORY.git"
+          git -C "$catalog" ls-remote --heads origin updates-catalog > "$RUNNER_TEMP/catalog-ref"
+          if test -s "$RUNNER_TEMP/catalog-ref"; then
+            git -C "$catalog" fetch --depth=1 origin updates-catalog
+            git -C "$catalog" checkout -b updates-catalog FETCH_HEAD
+          else
+            git -C "$catalog" checkout --orphan updates-catalog
+          fi
+          python scripts/publish_update_metadata.py --metadata-dir "$catalog/metadata" \
+            --root update-trust/root.json \
+            --artifact "$RUNNER_TEMP/release/y-scores-$RELEASE_TAG-pi5-aarch64-py313.tar.gz" \
+            --release-json "$RUNNER_TEMP/release/release.json"
+          git -C "$catalog" config user.name 'github-actions[bot]'
+          git -C "$catalog" config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git -C "$catalog" add metadata
+          git -C "$catalog" commit -m "Publish signed catalog for $RELEASE_TAG"
+          git -C "$catalog" push origin HEAD:updates-catalog
