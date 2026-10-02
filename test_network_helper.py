@@ -1,9 +1,10 @@
 from pathlib import Path
+import json
 import tempfile
 import unittest
 from unittest.mock import Mock
 from unittest.mock import patch
-from network_helper import NetworkManager, Recovery
+from network_helper import NetworkManager, Recovery, RECOVERY_PASSWORD_ALPHABET
 
 
 class RecoveryTests(unittest.TestCase):
@@ -27,10 +28,19 @@ class RecoveryTests(unittest.TestCase):
         self.backend.isolation.assert_called_with(True)
         call=self.backend.profile.call_args
         self.assertEqual(call.args[1],first); self.assertTrue(call.kwargs['hotspot'])
-        self.assertGreaterEqual(len(first),16)
+        self.assertRegex(first,r'^[A-Z3-9]{5}-[A-Z3-9]{5}$')
+        self.assertTrue(set(first.replace('-',''))<=set(RECOVERY_PASSWORD_ALPHABET))
         restarted=Recovery(self.backend,self.path,lambda:self.now)
         self.assertEqual(restarted.data['password'],first)
         self.assertEqual(restarted.status()['recoveryUrl'],'http://192.168.4.1:8080/')
+    def test_existing_long_password_and_profile_survive_the_readability_upgrade(self):
+        saved=dict(schemaVersion=1,ssid='Y-Scores-Setup-ABCD',password='aBcD_1234-LongPasswordXYZ',hotspotProfile='existing-profile')
+        self.path.write_text(json.dumps(saved))
+        restarted=Recovery(self.backend,self.path,lambda:self.now)
+        self.backend.reset_mock();restarted.hotspot()
+        self.assertEqual(restarted.status()['recoveryPassword'],saved['password'])
+        self.backend.profile.assert_not_called()
+        self.backend.activate.assert_called_once_with('existing-profile')
     def test_cloud_outage_alone_does_not_start_hotspot(self):
         self.backend.connected.return_value=True; self.now=999
         self.recovery.tick(); self.backend.activate.assert_not_called()

@@ -89,6 +89,25 @@ class HealthControlTests(unittest.TestCase):
         self.device.render(); self.assertEqual(self.device.control.ack['status'],'APPLIED')
         self.device.accept_control(None,False)
         self.assertEqual(self.device.effective_settings()['mode'],'logo')
+    def test_fallback_heartbeat_does_not_replay_applied_match_ack(self):
+        self.device.accept_control(self.desired(),True)
+        self.device.active_id=MATCH
+        self.device.publish_frame(Image.new('RGB',(192,64)),'MATCH',MATCH,5,1)
+        report=self.device.telemetry()
+        self.assertEqual(self.device.control_report(report)['acknowledgement']['status'],'APPLIED')
+        self.device.platform_available=lambda:False
+        self.assertIsNone(self.device.control_report(self.device.telemetry())['acknowledgement'])
+        self.device.platform_available=lambda:True
+        self.device.publish_frame(Image.new('RGB',(192,64)),'LOGO',None,None)
+        self.assertIsNone(self.device.control_report(self.device.telemetry())['acknowledgement'])
+        self.device.publish_frame(Image.new('RGB',(192,64)),'MATCH',MATCH,5,1)
+        self.assertEqual(self.device.control_report(self.device.telemetry())['acknowledgement']['status'],'APPLIED')
+    def test_schedule_fallback_does_not_acknowledge_schedule_output(self):
+        self.device.accept_control(dict(revision=4,mode='SCHEDULE',state='PENDING'),True)
+        self.device.publish_frame(Image.new('RGB',(192,64)),'SCHEDULE',None,None,4)
+        self.assertIsNotNone(self.device.control_report(self.device.telemetry())['acknowledgement'])
+        self.device.publish_frame(Image.new('RGB',(192,64)),'LOGO',None,None)
+        self.assertIsNone(self.device.control_report(self.device.telemetry())['acknowledgement'])
     def test_metadata_is_published_with_rendered_frame_not_mutating_feed(self):
         self.device.accept_control(self.desired(),True)
         self.device.feed=Mock(); self.device.feed.view.return_value={'match_id':MATCH,'match_revision':5}

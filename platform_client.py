@@ -76,7 +76,10 @@ class Platform:
                 self.session_unsupported=True
                 return None
             if code == 409:
-                if path == '/heartbeat': self.telemetry_session=None; self.session_opened=False
+                if path == '/heartbeat':
+                    # Reopening this boot returns the same session and server counter.
+                    # Keep our sequence unless the server actually changes session.
+                    self.session_opened=False
                 if anonymous and path == '/registrations':
                     self.registration_blocked = True
                     raise ValueError('Device registration rejected; identity preserved. Contact an administrator for recovery') from None
@@ -220,12 +223,13 @@ class Platform:
                 if response: self.session_opened=True; self.accept(response)
             body=dict(softwareVersion=self.version, controlSource='LOCAL')
             if self.telemetry_provider and self.telemetry_session:
+                telemetry=self.telemetry_provider()
                 if self.control_report:
-                    report=self.control_report(); body.update(report)
+                    report=self.control_report(telemetry); body.update(report)
                     if self.status and self.status.get('owner') and not report.get('localTakeover'):
                         body['controlSource']='PLATFORM'
                 self.report_sequence+=1
-                body.update(telemetrySession=self.telemetry_session,reportSequence=self.report_sequence,telemetry=self.telemetry_provider())
+                body.update(telemetrySession=self.telemetry_session,reportSequence=self.report_sequence,telemetry=telemetry)
             self.accept(self.request('POST', '/heartbeat',body))
             claim = self.request('GET', '/claim')
             if claim.get('state') != 'ACTIVE':

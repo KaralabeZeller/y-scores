@@ -17,6 +17,13 @@ import time
 from uuid import uuid4
 from device_identity import protected_write
 
+# Exclude easily confused glyphs; use a cryptographic source, never a shared default.
+RECOVERY_PASSWORD_ALPHABET = 'ACDEFGHJKMNPQRTUVWX34679'
+
+def recovery_password():
+    value = ''.join(secrets.choice(RECOVERY_PASSWORD_ALPHABET) for _ in range(10))
+    return value[:5] + '-' + value[5:]
+
 
 class NetworkManager:
     def __init__(self, interface='wlan0', directory='/etc/NetworkManager/system-connections', country=None, admin_port=8080):
@@ -125,7 +132,7 @@ class Recovery:
             if self.data.get('schemaVersion') != 1: raise ValueError('Unsupported network state version')
         else:
             self.data = dict(schemaVersion=1, ssid='Y-Scores-Setup-' + secrets.token_hex(2).upper(),
-                             password=secrets.token_urlsafe(18), hotspotProfile=None)
+                             password=recovery_password(), hotspotProfile=None)
             protected_write(self.path, self.data)
         self.state, self.pending, self.error = 'CHECKING', None, ''
         self.no_network_since = self.clock()

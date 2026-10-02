@@ -106,6 +106,11 @@ class AdminTests(unittest.TestCase):
         request=Request(self.base+'/api/login',data=json.dumps({'pin':'123456'}).encode(),headers={'Content-Type':'application/json','X-Scoreboard-Request':'1','Host':'attacker.example:'+str(self.server.server_port)})
         with self.assertRaises(HTTPError) as error: urlopen(request,timeout=3)
         self.assertEqual(error.exception.code,403); error.exception.close()
+    def test_setup_returns_numeric_address_using_the_actual_bound_port(self):
+        cookie=self.login()
+        with self.request('/api/setup',cookie=cookie) as response:value=json.load(response)
+        self.assertEqual(value['access']['urls'],[self.base+'/'])
+        self.assertIsNone(value['access']['hostnameUrl'])
     def test_setup_status_never_exposes_device_secret_or_initial_admin_pin(self):
         cookie=self.login()
         with self.request('/api/setup',cookie=cookie) as response:

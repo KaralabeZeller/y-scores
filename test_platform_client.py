@@ -4,7 +4,8 @@ from urllib.error import HTTPError
 from io import BytesIO
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, MagicMock
+import json
 import time
 from device_identity import Identity
 from platform_client import Platform, NoRedirect
@@ -18,6 +19,31 @@ class PlatformTests(unittest.TestCase):
         self.status=dict(id=self.identity.public()['id'],name='Board',metadataRevision=1,
                          owner=None,ownershipState='UNOWNED',lifecycle='REGISTERED',revision=0)
     def tearDown(self): self.tmp.cleanup()
+    def test_heartbeat_conflict_reopens_same_session_without_replaying_sequence(self):
+        self.identity.update(platformEnabled=True)
+        session='22222222-2222-4222-8222-222222222222'
+        status=self.status|dict(owner={'subject':'owner'},telemetrySession=session)
+        client=self.client
+        client.status=status; client.registered_revision=1
+        client.telemetry_session=session; client.session_opened=True; client.report_sequence=12
+        client.telemetry_provider=lambda:dict(effectiveMode='LOGO')
+        reports=[]
+        def open_request(request,timeout):
+            path=request.full_url.rsplit('/',1)[-1]
+            if path=='heartbeat':
+                body=json.loads(request.data); reports.append(body['reportSequence'])
+                if len(reports)==1 or body['reportSequence']<=12:
+                    raise HTTPError(request.full_url,409,'Conflict',{},BytesIO(b'{}'))
+            response=MagicMock(); response.status=200
+            response.read.return_value=json.dumps({'state':'NONE'} if path=='claim' else status).encode()
+            response.__enter__.return_value=response
+            return response
+        client.opener=Mock(); client.opener.open.side_effect=open_request
+        with self.assertRaises(ValueError): client.tick()
+        client.tick()
+        self.assertEqual(reports,[13,14])
+        self.assertTrue(client.session_opened)
+        self.assertTrue(client.selection_available())
     def test_tls_default_and_redirect_credentials_never_forwarded(self):
         with self.assertRaises(ValueError): Platform(self.identity,'http://example.test')
         Platform(self.identity,'http://localhost:8080/api-next',allow_http=True)

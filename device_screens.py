@@ -23,9 +23,41 @@ class Screens:
         if not value: return 'TBD'
         try: return datetime.fromisoformat(value.replace('Z','+00:00')).astimezone(ZoneInfo(zone)).strftime('%H:%M')
         except ValueError: return 'TBD'
-    def logo_screen(self):
+    def setup_screen(self, identity, pin, hostname, network, port, page):
         image=Image.new('RGB',(192,64))
-        image.paste(self.logo,((192-self.logo.width)//2,(64-self.logo.height)//2),self.logo)
+        recovery=network.get('state')=='RECOVERY_HOTSPOT'
+        if recovery and page==0:
+            self.text(image,network['recoverySsid'],96,0,center=True)
+            password=network['recoveryPassword']
+            tile=self.renderer.tile(password,(235,235,235),big=True)
+            if tile.width*2<=188:
+                self.text(image,'WI-FI PASSWORD',96,13,center=True)
+                tile=tile.resize((tile.width*2,tile.height*2),Image.Resampling.NEAREST)
+                image.paste(tile,((192-tile.width)//2,28))
+            else:
+                # Keep existing case-sensitive passwords intact and visible in full.
+                rows=(len(password)+22)//23
+                width=(len(password)+rows-1)//rows
+                self.text(image,'PASSWORD - JOIN LINES',96,12,center=True)
+                for index,start in enumerate(range(0,len(password),width)):
+                    tile=self.renderer.tile(password[start:start+width],(235,235,235),big=True)
+                    image.paste(tile,((192-tile.width)//2,24+index*13))
+            return image
+        addresses=network.get('adminUrls') or []
+        direct=addresses[page%len(addresses)].removeprefix('http://').rstrip('/') if addresses else hostname+'.local:'+str(port)
+        lines=(['OPEN BROWSER','192.168.4.1:'+str(port)] if recovery else
+               ['OPEN BROWSER',direct])
+        lines += ['ADMIN PIN '+pin if not identity['setupComplete'] else 'USE SAVED ADMIN PIN',
+                  'NETWORK > WI-FI' if recovery else hostname+'.local:'+str(port)]
+        for index,line in enumerate(lines): self.text(image,line[:30],2,index*15)
+        return image
+    def logo_screen(self,address=None):
+        image=Image.new('RGB',(192,64))
+        if address:
+            logo=self.logo.copy();logo.thumbnail((174,40),Image.Resampling.LANCZOS)
+            image.paste(logo,((192-logo.width)//2,(48-logo.height)//2),logo)
+            self.text(image,address,96,54,center=True)
+        else:image.paste(self.logo,((192-self.logo.width)//2,(64-self.logo.height)//2),self.logo)
         return image
     def upcoming(self,match,config):
         image=Image.new('RGB',(192,64))

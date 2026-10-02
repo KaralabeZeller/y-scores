@@ -54,8 +54,25 @@ startup at boot. A failed activation attempts to restore the previous running re
 It prints the local admin URL and the device's generated six-digit PIN.
 
 Open **http://YOUR_PI.local:8080/** from a phone or computer on the same network.
-If `.local` does not resolve, use the Pi's LAN IP. A fresh device shows the Y-Sports
+If `.local` does not resolve, use the Pi's LAN IP. Setup and the idle logo show
+numeric admin addresses with the actual configured port, refreshed after a network
+change; Network in the unlocked admin also lists these addresses. Active match and
+manual displays keep their scoreboard layout. A fresh device shows the Y-Sports
 logo at 8% intensity until assigned. Each device gets its own PIN and settings.
+
+Use a unique hostname such as `y-scores-5ea0` for each scoreboard. The app reads
+the OS hostname; `pantracker` is not required. On the Pi, rename it with
+`sudo raspi-config nonint do_hostname y-scores-5ea0`, then reboot. This is an
+operator OS change; application updates and the installer do not rename devices.
+
+The installer installs/enables Avahi for optional `.local` discovery. Client mDNS
+support and local multicast forwarding are still required. Recovery hotspot isolation
+intentionally blocks mDNS; use `http://192.168.4.1:PORT/` there. On normal Wi-Fi,
+try the displayed numeric URL on another device first: if it works but `.local`
+does not, check mDNS/client settings; if neither works, check guest Wi-Fi isolation,
+VLANs or a client VPN. Sharing an SSID does not guarantee clients can reach each other.
+`Y_SCORES_PORT` in `/etc/y-scores.env` is shared by the admin, network helper and updater;
+the configured port must be free on the Pi, regardless of ports used on the client.
 
 ## Display control
 
@@ -164,6 +181,27 @@ sudo cat /var/lib/y-scores/admin-pin.txt
 The PIN protects local control, with limited login attempts and 12-hour sessions.
 This HTTP admin is intended for a trusted LAN; do not expose it through router port
 forwarding. Restarting the service invalidates browser sessions but preserves the PIN.
+
+### Logo repeatedly returns / platform appears offline
+
+First distinguish a device reboot from a platform reconnect:
+
+```sh
+uptime
+systemctl show y-scores -p NRestarts -p ExecMainStartTimestamp
+sudo journalctl -u y-scores -n 60 --no-pager
+curl -fsS http://127.0.0.1:8080/healthz
+```
+
+If uptime and the service start time remain stable, inspect the connection error
+in the unlocked local admin. A heartbeat conflict can leave older clients cycling
+between the assigned display and the fallback logo. Restarting `y-scores` once
+opens a fresh telemetry session; install the reconnect fix to prevent recurrence.
+The fixed client retains increasing report sequences when reopening the same
+session and only sends an applied acknowledgement consistent with its current
+display report. It still falls back to the logo when platform access is lost.
+Use the normal installer and rollback procedure; preserve device identity, PIN,
+settings and `/etc/y-scores.env`. Do not unpair or delete state for this symptom.
 
 ## Daisy-chain wiring
 
@@ -328,7 +366,12 @@ sudo bash scripts/install.sh --enable-network-helper
 
 After 90 seconds without an Ethernet/Wi-Fi link, it opens a unique password-
 protected `Y-Scores-Setup-XXXX` network at `http://192.168.4.1:8080/` (or the
-configured admin port). The password and SSID survive updates in the root-only
+configured admin port). New recovery passwords contain ten random uppercase
+letters/digits in two groups of five separated by a hyphen, excluding confusing
+characters. The hyphen is part of the password. The panels show the key in a larger,
+bold font; existing longer passwords appear across consecutive lines, joined without
+spaces. The alternate page shows the recovery admin address. Existing credentials
+are preserved, including their letter case. The password and SSID survive updates in the root-only
 `/var/lib/y-scores-network/network-state.json`. nftables allows DHCP and the local
 admin page and blocks SSH, IPv6 and forwarding from/to the recovery interface;
 clients cannot use the AP to reach the venue LAN. The network password grants

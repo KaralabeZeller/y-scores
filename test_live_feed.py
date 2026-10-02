@@ -17,6 +17,33 @@ class FeedTests(unittest.TestCase):
         response=Mock(status=200)
         response.read.return_value=json.dumps(payload).encode()
         return response
+    def test_device_match_switch_uses_the_new_matches_primary_colors(self):
+        next_match='99d418ef-ef06-4123-b901-3c7e28c5b4c3'
+        palettes={self.match:('#008000','#f8181e'),next_match:('#1234ab','#ffaa00')}
+        def request(method,path):
+            match_id=path.split('/')[2]
+            if path.endswith('/snapshot'):
+                snapshot=copy.deepcopy(self.snapshot)
+                snapshot['matchId']=match_id
+                return snapshot
+            a,b=palettes[match_id]
+            return dict(teamA=dict(details=dict(home_color=a)),teamB=dict(details=dict(home_color=b)))
+        request_mock=Mock(side_effect=request)
+        for match_id,expected in [(self.match,[(0,128,0),(248,24,30)]),
+                                  (next_match,[(18,52,171),(255,170,0)])]:
+            with self.subTest(match=match_id):
+                feed=Feed('https://example.invalid/api-next',match_id,device_request=request_mock)
+                self.addCleanup(feed.connection.close)
+                feed.fetch_colors();feed.fetch()
+                self.assertEqual([team['color'] for team in feed.view()['teams']],expected)
+                request_mock.assert_any_call('GET',f'/matches/{match_id}')
+    def test_new_match_without_colors_does_not_reuse_previous_palette(self):
+        self.feed.device_request=Mock(return_value=dict(teamA=dict(details=dict(home_color='#008000'))))
+        self.feed.fetch_colors()
+        replacement=Feed('https://example.invalid/api-next','99d418ef-ef06-4123-b901-3c7e28c5b4c3',device_request=Mock(return_value=dict(teamA=None,teamB=dict(details=None))))
+        self.addCleanup(replacement.connection.close)
+        replacement.fetch_colors()
+        self.assertEqual(replacement.colors,[(40,200,255),(255,155,40)])
     def test_pause_replaces_extrapolated_clock_immediately(self):
         paused=copy.deepcopy(self.snapshot)
         paused['revision']=3

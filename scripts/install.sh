@@ -62,7 +62,8 @@ exec 9>/run/lock/y-scores-install.lock
 flock -n 9 || { echo 'Another y-scores install is running.' >&2; exit 1; }
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
-apt-get install -y python3-venv python3-dev build-essential cmake pkg-config curl git
+apt-get install -y python3-venv python3-dev build-essential cmake pkg-config curl git avahi-daemon
+systemctl enable --now avahi-daemon.service
 getent group gpio >/dev/null || groupadd --system gpio
 id yscores >/dev/null 2>&1 || useradd --system --user-group --home-dir /var/lib/y-scores --shell /usr/sbin/nologin yscores
 usermod -a -G gpio yscores

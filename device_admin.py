@@ -23,6 +23,7 @@ from device_screens import Screens
 from device_identity import Identity
 from platform_client import Platform
 from network_client import Network
+from local_access import admin_access
 from manual_match import ManualMatch, Conflict
 from device_control import Control
 from device_health import Health, age_ms
@@ -56,7 +57,7 @@ class Device:
         self.output_at=0; self.output_state='SIMULATOR'; self.driver='simulator'; self.refresh_hz=None
         self.rendered_mode='UNKNOWN'; self.rendered_match=None; self.rendered_revision=None
         self.network_kind='UNKNOWN'; self.topology='unknown'; self.renderer_error=False
-        self.remote_request=None; self.feed_scoped=False
+        self.remote_request=None; self.feed_scoped=False; self.admin_urls=[]
         self.schedule_revision=None; self.schedule_failed=False
         self.update_reserved_until=0; self.network_status={'state':'CHECKING'}
     def effective_settings(self):
@@ -139,6 +140,20 @@ class Device:
         if self.renderer_error: result['errors'].append('RENDERER')
         if result['feedState'] in ('DELAYED','DISCONNECTED'): result['errors'].append('FEED')
         return result
+    def control_report(self, telemetry):
+        with self.lock:
+            ack=copy.deepcopy(self.control.ack)
+            desired=self.control.desired
+            if ack and ack.get('status')=='APPLIED':
+                confirms=bool(desired and self.control.authorized and self.platform_available()
+                    and ack['revision']==desired.get('revision')
+                    and telemetry.get('effectiveMode')==desired.get('mode'))
+                if confirms and desired.get('mode')=='MATCH':
+                    confirms=(telemetry.get('selectedMatchId')==desired.get('effectiveMatchId')
+                              and telemetry.get('renderedMatchId')==desired.get('effectiveMatchId'))
+                # An earlier successful frame cannot acknowledge a current fallback.
+                if not confirms: ack=None
+            return dict(localTakeover=self.control.value['localTakeover'],acknowledgement=ack)
     def require_platform(self):
         if not self.platform_available():
             raise PlatformRequired('Pair this device and enable a healthy Y-Sports connection, or use manual handball control')
@@ -219,9 +234,11 @@ class Device:
         with self.lock:
             config=self.effective_settings(); feed=self.feed; matches=self.matches; upcoming=self.next_match; error=self.error
             catalog_at=self.catalog_at
+            admin_urls=list(self.admin_urls)
             desired=self.control.desired
             control_revision=desired.get('revision') if desired else None
         mode=config['mode']
+        address=admin_urls[int(time.monotonic()/8)%len(admin_urls)].removeprefix('http://').rstrip('/') if admin_urls else None
         rendered_view=None
         if feed and not self.platform_available(): feed.stop.set()
         if mode in CLOUD_MODES and not self.platform_available():
@@ -229,11 +246,11 @@ class Device:
             mode='logo'
         if mode=='blank': image=Image.new('RGB',(192,64))
         elif mode=='manual': image=self.renderer.render(self.manual.view())
-        elif mode=='logo': image=self.screens.logo_screen()
+        elif mode=='logo': image=self.screens.logo_screen(address)
         elif mode=='schedule':
             if not self.schedule_failed and self.schedule_revision==control_revision and catalog_at and time.monotonic()-catalog_at<15:
                 image=self.screens.schedule(matches,config)
-            else: mode='logo'; image=self.screens.logo_screen()
+            else: mode='logo'; image=self.screens.logo_screen(address)
         elif mode=='court' and not feed: image=self.screens.upcoming(upcoming,config)
         else:
             rendered_view=feed.view() if feed else None
@@ -357,7 +374,7 @@ class Handler(BaseHTTPRequestHandler):
         if not self.authorized(): return
         try:
             if route.path=='/api/session': return self.send(200,{'csrfToken':self.server.auth.csrf(self.headers.get('Cookie'))})
-            if route.path=='/api/setup': return self.send(200,dict(identity=self.server.identity.public(),platform=self.server.platform.public(),network=self.server.network.status()))
+            if route.path=='/api/setup': return self.send(200,dict(identity=self.server.identity.public(),platform=self.server.platform.public(),network=self.server.network.status(),access=self.server.access()))
             if route.path=='/api/network/scan': return self.send(200,self.server.network.request('scan'))
             if route.path=='/api/status': return self.send(200,self.server.device.state())
             if route.path=='/api/preview.png': return self.send(200,self.server.device.preview(),'image/png')
@@ -434,6 +451,8 @@ class Handler(BaseHTTPRequestHandler):
 
 class Server(ThreadingHTTPServer):
     daemon_threads=True
+    def access(self):
+        return admin_access(self.server_address[0],self.server_port)
     def get_request(self):
         connection,address=super().get_request(); connection.settimeout(10); return connection,address
 
@@ -470,7 +489,7 @@ def main():
     device.remote_request=server.platform.request
     server.platform.telemetry_provider=device.telemetry
     server.platform.control_consumer=lambda desired,available:device.accept_control(desired,available and server.identity.public()['setupComplete'])
-    server.platform.control_report=lambda:dict(localTakeover=device.control.value['localTakeover'],acknowledgement=device.control.ack)
+    server.platform.control_report=device.control_report
     matrix=None
     if not args.no_hardware:
         matrix,framebuffer=create_matrix(args.topology,args.pinout)
@@ -485,7 +504,9 @@ def main():
     def refresh_network():
         while not device.stop.is_set():
             value=server.network.status()
-            with device.lock: device.network_status=value
+            access=server.access(); value['adminUrls']=access['urls']
+            with device.lock:
+                device.network_status=value; device.admin_urls=access['urls']
             device.network_kind={'RECOVERY_HOTSPOT':'HOTSPOT','DISCONNECTED':'DISCONNECTED'}.get(value.get('state'),device.health.network())
             with setup_network_lock:
                 setup_network.clear(); setup_network.update(value)
@@ -504,16 +525,9 @@ def main():
             frame_metadata=device.pending_frame
             with setup_network_lock: network=dict(setup_network)
             if not identity['setupComplete'] or (network.get('state')=='RECOVERY_HOTSPOT' and device.settings()['mode']!='manual'):
-                # Show credentials physically only on genuinely new, unfinished units.
-                # Legacy settings suppress this first-run disclosure.
-                from PIL import ImageDraw
-                image=Image.new('RGB',(192,64)); page=int(time.monotonic()/6)%2
-                if network.get('state')=='RECOVERY_HOTSPOT' and page==0:
-                    lines=['SETUP WI-FI',network['recoverySsid'],network['recoveryPassword'],'192.168.4.1:'+str(args.port)]
-                else:
-                    lines=['Y-SCORES SETUP',socket.gethostname()+'.local:'+str(args.port),
-                           'ADMIN PIN '+server.auth.pin if not identity['setupComplete'] else 'USE SAVED ADMIN PIN','OPEN LOCAL ADMIN']
-                for index,line in enumerate(lines): server.device.screens.text(image,line[:30],2,index*15,(235,235,235))
+                # Existing recovery credentials stay case-sensitive; the saved PIN is not redisplayed.
+                page=int(time.monotonic()/8)%2
+                image=device.screens.setup_screen(identity,server.auth.pin,socket.gethostname(),network,args.port,page)
                 frame_metadata=('SETUP',None,None,None)
             submitted=False
             if matrix:
