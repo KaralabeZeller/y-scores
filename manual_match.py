@@ -131,6 +131,11 @@ class ManualMatch:
                     if self.data['running'] or self.data['timeout']: raise ValueError('Pause the clock and end the timeout first')
                     if self.data['period'] >= self.data['settings']['periods']: raise ValueError('This is the final configured period')
                     self.data['period'] += 1; self.data['elapsed'] = 0.
+                elif action == 'setClock':
+                    if self.data['running'] or self.data['timeout']: raise ValueError('Pause the clock and end the timeout first')
+                    seconds = integer(value.get('seconds'), 0, self.data['settings']['periodSeconds'], 'Display seconds')
+                    self.data['elapsed'] = (seconds if self.data['settings']['clockDirection'] == 'up'
+                                            else self.data['settings']['periodSeconds'] - seconds)
                 elif action == 'adjustClock':
                     if self.data['running'] or self.data['timeout']: raise ValueError('Pause the clock and end the timeout first')
                     # Corrections change the displayed period clock, not already-served penalty time.

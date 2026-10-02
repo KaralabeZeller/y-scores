@@ -59,6 +59,15 @@ logo at 8% intensity until assigned. Each device gets its own PIN and settings.
 
 ## Display control
 
+The local admin has separate **Display**, **Manual controls**, **Network**,
+**Device**, **Y-Sports account** and **Software** pages. Choose System, Light or
+Dark appearance in the header; appearance and language are saved in this browser
+and do not modify display brightness or device configuration. First-time setup
+guides the operator through Network → Device → optional account pairing, then
+opens Display. Saving a name is required before the account step or completion.
+If a new Wi-Fi connection needs confirmation, the Network page opens automatically.
+Recovery hotspot access details are collapsed until the operator opens them.
+
 Assign a match, follow a court or show a scoped schedule from Y-Sports management.
 The local admin shows that assignment read-only; it has no platform match/court
 pickers or match UUID fields. The local `/api/config` rejects cloud selection
@@ -82,8 +91,9 @@ Manual backup remains independent, including on the recovery hotspot.
 
 ### Local handball control
 
-Unlock with the existing device PIN, choose **Manual**, then **Save display settings**.
-Use **Basic setup** to select Handball, name both teams, choose period duration
+Unlock with the existing device PIN, open **Display**, choose **Manual**, then
+**Save display settings**. Open **Manual controls** and use **Basic setup** to
+select Handball, name both teams, choose period duration
 and count, count up/down, timeouts allowed per team per match, and timeout/penalty
 duration. Defaults are two 30-minute periods, three timeouts per team, 60-second
 timeouts and 120-second penalties. Saving setup preserves an existing score;
@@ -94,8 +104,13 @@ numbered player penalties. Penalties count down only during playing time and
 carry across periods. A timeout pauses the clock and consumes one allowance;
 expiry or End timeout leaves the clock paused until Start. Undo timeout count
 corrects the allowance; End timeout separately ends an active countdown.
-Remove a penalty with its × button. Basic setup also allows elapsed-clock
-correction while paused; this does not change already-served penalty time.
+Remove a penalty with its × button. In Match controls, **Display time (mm:ss)**
+sets the exact time shown on the board, in either count-up or countdown mode,
+within the configured period length. Pause and end any timeout before editing.
+Clock corrections do not change already-served penalty time. **Reset clock**
+returns to the start of the current period while keeping goals, penalties and
+timeout counts. **Reset match** clears match state while keeping its setup.
+Both reset actions open a confirmation dialog with Cancel as the initial focus.
 Pause and end any timeout before changing periods, setup or resetting.
 
 State is private and persistent in `/var/lib/y-scores/manual-match.json`.

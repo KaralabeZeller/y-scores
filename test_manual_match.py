@@ -38,6 +38,38 @@ class ManualTests(unittest.TestCase):
         with self.assertRaises(ValueError): self.command('adjustClock',seconds=3)
         self.time+=3; self.command('pause')
         self.assertEqual(self.match.view()['elapsed_seconds'],10)
+    def test_set_display_time_counts_up_and_down_without_serving_penalties(self):
+        self.command('penalty',team=0,number=8)
+        for direction in ('up','down'):
+            self.command('setup',settings=SETTINGS|dict(clockDirection=direction))
+            self.command('setClock',seconds=754)
+            self.assertEqual(self.match.snapshot()['clockSeconds'],754)
+            self.assertEqual(self.match.view()['teams'][0]['penalties'],[(8,120 if direction=='up' else 117)])
+            self.command('start'); self.time+=3; self.command('pause')
+            self.assertEqual(self.match.snapshot()['clockSeconds'],757 if direction=='up' else 751)
+            self.command('adjustClock',seconds=0)
+        self.assertEqual(self.match.snapshot()['clockSeconds'],1800)
+        self.assertEqual(self.match.snapshot()['teams'][0]['score'],0)
+    def test_invalid_display_time_and_active_clock_changes_are_atomic(self):
+        for seconds in (-1,1801,True,1.5):
+            before=self.match.snapshot()
+            with self.assertRaises(ValueError): self.command('setClock',seconds=seconds)
+            self.assertEqual(self.match.snapshot(),before)
+        self.command('start')
+        with self.assertRaises(ValueError): self.command('setClock',seconds=10)
+        self.command('pause'); self.command('timeout',team=0)
+        with self.assertRaises(ValueError): self.command('setClock',seconds=10)
+    def test_clock_reset_keeps_current_period_scores_penalties_and_timeouts(self):
+        self.command('goal',team=0,delta=1)
+        self.command('penalty',team=1,number=6)
+        self.command('timeout',team=0); self.command('endTimeout')
+        self.command('nextPeriod'); self.command('setClock',seconds=120)
+        state=self.command('adjustClock',seconds=0)
+        self.assertEqual(state['clockSeconds'],0)
+        self.assertEqual(state['period'],2)
+        self.assertEqual(state['teams'][0]['score'],1)
+        self.assertEqual(state['teams'][0]['timeoutsUsed'],1)
+        self.assertEqual(state['teams'][1]['penalties'][0]['number'],6)
     def test_player_penalties_only_advance_during_play_and_carry_between_periods(self):
         self.command('penalty',team=1,number=17,seconds=120)
         self.time+=50
