@@ -135,7 +135,9 @@ def build(source, wheels, output, tag, commit, notes='', epoch=0):
     output.mkdir(parents=True, exist_ok=True)
     archive = output / f'y-scores-{tag}-pi5-aarch64-py313.tar.gz'
     with archive.open('wb') as raw, gzip.GzipFile(filename='', mode='wb', fileobj=raw, mtime=epoch) as zipped:
-        with tarfile.open(fileobj=zipped, mode='w', format=tarfile.USTAR_FORMAT) as tar:
+        # ARM wheel basenames can exceed USTAR's 100-byte name field. PAX preserves
+        # these exact names without truncation and stays deterministic here.
+        with tarfile.open(fileobj=zipped, mode='w', format=tarfile.PAX_FORMAT) as tar:
             for name, contents in sorted(payload.items()):
                 item = tarfile.TarInfo(name)
                 item.size = len(contents)

@@ -99,6 +99,18 @@ class ReleasePublishingTest(unittest.TestCase):
         self.assertEqual(unpack(self.archive, destination, custom['unpackedBytes']), custom['unpackedBytes'])
         self.assertEqual(manifest(destination, custom), self.release)
 
+    def test_long_arm_wheel_names_roundtrip_through_pi_extraction(self):
+        from update_core import unpack, manifest
+        name = 'adafruit_blinka_raspberry_pi5_piomatter-1.0.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl'
+        self.wheel(name, 'Name: Adafruit-Blinka-Raspberry-Pi5-Piomatter\nVersion: 1.0.0\n')
+        archive, release = build(self.source, self.wheels, self.base / 'long-wheels', 'v1.0.0', self.commit, epoch=123)
+        duplicate, _ = build(self.source, self.wheels, self.base / 'long-wheels-repeat', 'v1.0.0', self.commit, epoch=123)
+        self.assertEqual(archive.read_bytes(), duplicate.read_bytes())
+        destination = self.base / 'long-wheel-candidate'
+        self.assertEqual(unpack(archive, destination, release['unpackedBytes']), release['unpackedBytes'])
+        self.assertTrue((destination / 'wheels' / name).is_file())
+        self.assertEqual(manifest(destination, {key: release[key] for key in CUSTOM_FIELDS}), release)
+
     def test_dirty_source_wrong_commit_and_invalid_version_rejected(self):
         with self.assertRaises(ValueError):
             build(self.source, self.wheels, self.artifacts, 'v1.0.0', '0' * 40)
