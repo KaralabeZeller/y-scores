@@ -57,7 +57,7 @@ class Device:
         self.output_at=0; self.output_state='SIMULATOR'; self.driver='simulator'; self.refresh_hz=None
         self.rendered_mode='UNKNOWN'; self.rendered_match=None; self.rendered_revision=None
         self.network_kind='UNKNOWN'; self.topology='unknown'; self.renderer_error=False
-        self.remote_request=None; self.feed_scoped=False; self.admin_urls=[]
+        self.remote_request=None; self.feed_scoped=False; self.admin_urls=[]; self.admin_hostname=None
         self.schedule_revision=None; self.schedule_failed=False
         self.update_reserved_until=0; self.network_status={'state':'CHECKING'}
     def effective_settings(self):
@@ -234,7 +234,7 @@ class Device:
         with self.lock:
             config=self.effective_settings(); feed=self.feed; matches=self.matches; upcoming=self.next_match; error=self.error
             catalog_at=self.catalog_at
-            admin_urls=list(self.admin_urls)
+            admin_urls=([self.admin_hostname] if self.admin_hostname else [])+list(self.admin_urls)
             desired=self.control.desired
             control_revision=desired.get('revision') if desired else None
         mode=config['mode']
@@ -506,7 +506,7 @@ def main():
             value=server.network.status()
             access=server.access(); value['adminUrls']=access['urls']
             with device.lock:
-                device.network_status=value; device.admin_urls=access['urls']
+                device.network_status=value; device.admin_urls=access['urls']; device.admin_hostname=access['hostnameUrl']
             device.network_kind={'RECOVERY_HOTSPOT':'HOTSPOT','DISCONNECTED':'DISCONNECTED'}.get(value.get('state'),device.health.network())
             with setup_network_lock:
                 setup_network.clear(); setup_network.update(value)

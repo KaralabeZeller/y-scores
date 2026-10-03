@@ -2,7 +2,7 @@ from pathlib import Path
 import tempfile
 import time
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from device_admin import Device, ROOT
 from device_health import Health
 from device_model import DEFAULTS
@@ -22,6 +22,14 @@ class HealthControlTests(unittest.TestCase):
         self.device.platform_available=lambda:True
     def tearDown(self): self.tmp.cleanup()
     def desired(self,revision=1): return dict(revision=revision,mode='MATCH',effectiveMatchId=MATCH,state='PENDING')
+    def test_start_screen_cycles_hostname_and_numeric_address(self):
+        self.device.admin_hostname='http://y-scores-5ea0.local:8080/'
+        self.device.admin_urls=['http://192.168.1.25:8080/']
+        with patch.object(self.device.screens,'logo_screen',wraps=self.device.screens.logo_screen) as screen:
+            for timestamp in (0,8,16):
+                with patch('device_admin.time.monotonic',return_value=timestamp):self.device.render()
+        self.assertEqual([call.args[0] for call in screen.call_args_list],
+                         ['y-scores-5ea0.local:8080','192.168.1.25:8080','y-scores-5ea0.local:8080'])
     def test_default_logo_accepts_first_assignment_but_intentional_blank_does_not(self):
         self.device.accept_control(self.desired(),True)
         self.assertEqual(self.device.effective_settings()['match_id'],MATCH)

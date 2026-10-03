@@ -14,10 +14,23 @@ class Screens:
         if bounds: logo=logo.crop(bounds)
         logo.thumbnail((174,48),Image.Resampling.LANCZOS)
         self.logo=logo
-    def text(self,image,label,x,y,color=(235,235,235),center=False):
+    def text(self,image,label,x,y,color=(235,235,235),center=False,big=False):
         label=unicodedata.normalize('NFKD',str(label)).encode('ascii','ignore').decode()
-        tile=self.renderer.tile(label,color)
+        tile=self.renderer.tile(label,color,big=big)
         image.paste(tile,(int(x-tile.width/2) if center else x,y))
+    def address_lines(self,address,max_height):
+        # Keep the whole URL readable; split the port rather than shrink common names.
+        for big,width,height in ((True,23,13),(False,31,9)):
+            host,separator,port=address.rpartition(':')
+            if len(address)<=width: lines=[address]
+            elif separator and len(host)<=width: lines=[host,':'+port]
+            else: lines=[address[start:start+width] for start in range(0,len(address),width)]
+            if len(lines)*height<=max_height: return lines,big,height
+        return lines,big,height
+    def address_text(self,image,address,top,max_height):
+        lines,big,height=self.address_lines(address,max_height)
+        y=top+(max_height-len(lines)*height)//2
+        for index,line in enumerate(lines): self.text(image,line,96,y+index*height,center=True,big=big)
     def time_label(self,match,zone):
         value=match.get('matchTime')
         if not value: return 'TBD'
@@ -44,19 +57,25 @@ class Screens:
                     image.paste(tile,((192-tile.width)//2,24+index*13))
             return image
         addresses=network.get('adminUrls') or []
-        direct=addresses[page%len(addresses)].removeprefix('http://').rstrip('/') if addresses else hostname+'.local:'+str(port)
-        lines=(['OPEN BROWSER','192.168.4.1:'+str(port)] if recovery else
-               ['OPEN BROWSER',direct])
-        lines += ['ADMIN PIN '+pin if not identity['setupComplete'] else 'USE SAVED ADMIN PIN',
-                  'NETWORK > WI-FI' if recovery else hostname+'.local:'+str(port)]
-        for index,line in enumerate(lines): self.text(image,line[:30],2,index*15)
+        hostname_address=hostname+'.local:'+str(port)
+        direct=(addresses[(page-1)%len(addresses)].removeprefix('http://').rstrip('/')
+                if addresses and page else hostname_address)
+        address='192.168.4.1:'+str(port) if recovery else direct
+        self.text(image,'OPEN BROWSER',96,0,center=True)
+        self.address_text(image,address,13,30)
+        self.text(image,'ADMIN PIN '+pin if not identity['setupComplete'] else 'USE SAVED ADMIN PIN',96,45,center=True)
+        self.text(image,'NETWORK > WI-FI' if recovery else 'IP ADDRESS > NETWORK',96,55,center=True)
         return image
     def logo_screen(self,address=None):
         image=Image.new('RGB',(192,64))
         if address:
-            logo=self.logo.copy();logo.thumbnail((174,40),Image.Resampling.LANCZOS)
-            image.paste(logo,((192-logo.width)//2,(48-logo.height)//2),logo)
-            self.text(image,address,96,54,center=True)
+            lines,big,height=self.address_lines(address,52)
+            address_height=len(lines)*height
+            logo_height=64-address_height-8
+            if logo_height>=12:
+                logo=self.logo.copy();logo.thumbnail((174,logo_height),Image.Resampling.LANCZOS)
+                image.paste(logo,((192-logo.width)//2,(logo_height-logo.height)//2),logo)
+            self.address_text(image,address,64-address_height-2,address_height)
         else:image.paste(self.logo,((192-self.logo.width)//2,(64-self.logo.height)//2),self.logo)
         return image
     def upcoming(self,match,config):

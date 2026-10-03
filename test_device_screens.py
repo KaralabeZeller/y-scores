@@ -36,18 +36,45 @@ class SetupScreenTests(unittest.TestCase):
                 self.assertIn('192.168.4.1:8080',labels)
                 self.assertEqual('ADMIN PIN 123456' in labels,not complete)
                 self.assertEqual('USE SAVED ADMIN PIN' in labels,complete)
-    def test_normal_network_displays_ip_with_configured_port_before_hostname(self):
+    def test_normal_network_alternates_large_hostname_and_ip_with_configured_port(self):
         network=dict(state='CONNECTED',adminUrls=['http://192.168.1.25:8081/'])
         with patch.object(self.screens,'text',wraps=self.screens.text) as text:
             self.screens.setup_screen(dict(setupComplete=False),'123456','board',network,8081,0)
             labels=[call.args[1] for call in text.call_args_list]
-            self.assertEqual(labels[1],'192.168.1.25:8081')
-            self.assertIn('board.local:8081',labels)
+            self.assertEqual(labels[1],'board.local:8081')
+            self.assertTrue(text.call_args_list[1].kwargs['big'])
+            text.reset_mock()
+            self.screens.setup_screen(dict(setupComplete=False),'123456','board',network,8081,1)
+            self.assertIn('192.168.1.25:8081',[call.args[1] for call in text.call_args_list])
     def test_idle_logo_can_show_numeric_admin_address(self):
         with patch.object(self.screens,'text',wraps=self.screens.text) as text:
             image=self.screens.logo_screen('192.168.1.25:8081')
             self.assertEqual(image.size,(192,64))
             self.assertEqual(text.call_args.args[1],'192.168.1.25:8081')
+    def test_start_screen_keeps_entire_hostname_and_port_in_large_text(self):
+        address='y-scores-5ea0.local:8080'
+        with patch.object(self.screens,'text',wraps=self.screens.text) as text:
+            image=self.screens.logo_screen(address)
+        self.assertEqual(''.join(call.args[1] for call in text.call_args_list),address)
+        for call in text.call_args_list:
+            self.assertTrue(call.kwargs['big'])
+            tile=self.renderer.tile(call.args[1],(235,235,235),big=True)
+            y=call.args[3];x=(192-tile.width)//2
+            self.assertLessEqual(y+tile.height,64)
+            self.assertIsNone(ImageChops.difference(image.crop((x,y,x+tile.width,y+tile.height)),tile).getbbox())
+    def test_long_hostname_is_not_truncated_on_start_or_first_setup(self):
+        hostname='scoreboard-'+('a'*53)
+        for setup in (False,True):
+            with self.subTest(setup=setup),patch.object(self.screens,'text',wraps=self.screens.text) as text:
+                if setup:self.screens.setup_screen(dict(setupComplete=False),'123456',hostname,dict(state='CONNECTED'),8080,0)
+                else:self.screens.logo_screen(hostname+'.local:8080')
+            calls=text.call_args_list[1:-2] if setup else text.call_args_list
+            self.assertEqual(''.join(call.args[1] for call in calls),hostname+'.local:8080')
+            for call in calls:
+                tile=self.renderer.tile(call.args[1],(235,235,235),big=call.kwargs['big'])
+                self.assertLessEqual(tile.width,188)
+                self.assertGreaterEqual(call.args[3],0)
+                self.assertLessEqual(call.args[3]+tile.height,64)
     def test_normal_first_setup_preserves_hostname_and_pin(self):
         with patch.object(self.screens,'text',wraps=self.screens.text) as text:
             self.screens.setup_screen(dict(setupComplete=False),'123456','board',dict(state='CONNECTED'),8080,0)

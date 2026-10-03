@@ -54,9 +54,10 @@ startup at boot. A failed activation attempts to restore the previous running re
 It prints the local admin URL and the device's generated six-digit PIN.
 
 Open **http://YOUR_PI.local:8080/** from a phone or computer on the same network.
-If `.local` does not resolve, use the Pi's LAN IP. Setup and the idle logo show
-numeric admin addresses with the actual configured port, refreshed after a network
-change; Network in the unlocked admin also lists these addresses. Active match and
+If `.local` does not resolve, use the Pi's LAN IP. Setup and the idle logo alternate
+the `.local` hostname and numeric admin addresses with the actual configured port.
+Addresses use larger bold text, wrapping long names without cutting them off, and
+refresh after a network change. Network in the unlocked admin also lists numeric addresses. Active match and
 manual displays keep their scoreboard layout. A fresh device shows the Y-Sports
 logo at 8% intensity until assigned. Each device gets its own PIN and settings.
 
