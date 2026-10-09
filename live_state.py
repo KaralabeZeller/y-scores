@@ -42,13 +42,13 @@ def project(snapshot, age=0):
                 penalties.append((number if number is not None else '?', math.floor(remaining/1000)))
         teams.append(dict(name=team.get('name') or ('TEAM '+suffix), score=state['scoreTeam'+suffix],
                           timeouts=state['team'+suffix+'TimeoutsUsed'], penalties=sorted(penalties,key=lambda p:p[1])))
-    return dict(teams=teams, period=period,
+    return dict(teams=teams, period=period, period_count=config['regularPeriodCount'],
                 elapsed_seconds=int(min(duration,max(0,state['periodElapsedAnchorMs']+advance))//1000),
                 status='OFFLINE' if age>=STALE_SECONDS else state['status'], revision=snapshot['revision'])
 
 
-def timeout_seconds(snapshot, events, age=0):
-    """Match Center's 60-second timeout, anchored to the accepted event timestamp."""
+def timeout_details(snapshot, events, age=0):
+    """Countdown and requesting team from the same accepted timeout event."""
     state = snapshot['state']
     if age >= STALE_SECONDS or state['clockRunning'] or state['status'] != 'PAUSED':
         return None
@@ -67,4 +67,11 @@ def timeout_seconds(snapshot, events, age=0):
             'MATCH_FINISHED', 'CLOCK_ADJUSTED') for e in effective):
         return None
     elapsed = timestamp(snapshot['serverTime']) - timestamp(timeout['recordedAt']) + max(0, age)
-    return math.floor(max(0, min(60, 60-elapsed)))
+    return dict(seconds=math.floor(max(0, min(60, 60-elapsed))),
+                team={'TEAM_A': 0, 'TEAM_B': 1}.get(timeout.get('teamSide')))
+
+
+def timeout_seconds(snapshot, events, age=0):
+    """Match Center's 60-second timeout, anchored to the accepted event timestamp."""
+    timeout = timeout_details(snapshot, events, age)
+    return timeout['seconds'] if timeout is not None else None

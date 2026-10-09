@@ -15,8 +15,13 @@ from uuid import UUID
 from matrix_output import create_matrix, fill_framebuffer, TOPOLOGIES
 from PIL import Image, ImageDraw, ImageFilter
 from bdfparser import Font
-from live_state import MEDIA_TYPE, project, clock, primary_colors, timeout_seconds
+from live_state import MEDIA_TYPE, project, clock, primary_colors, timeout_details
 LOG = logging.getLogger('scoreboard')
+
+def dark_color(color):
+    # Display-only brightness heuristic; preserve the original team colour.
+    return sum(channel*weight for channel,weight in zip(color,(.2126,.7152,.0722)))<60
+
 class Feed:
     def __init__(self, base, match, poll_interval=.2, device_request=None):
         self.match = str(UUID(match))
@@ -127,7 +132,9 @@ class Feed:
             age = time.monotonic()-self.received
             view = project(self.snapshot,age)
             view['match_id']=self.match; view['match_revision']=self.snapshot['revision']
-            view['timeout_seconds'] = timeout_seconds(self.snapshot,self.events,age) if self.events_revision >= self.snapshot['revision'] else None
+            timeout = timeout_details(self.snapshot,self.events,age) if self.events_revision >= self.snapshot['revision'] else None
+            view['timeout_seconds'] = timeout['seconds'] if timeout is not None else None
+            view['timeout_team'] = timeout['team'] if timeout is not None else None
             for team,color in zip(view["teams"],self.colors): team["color"] = color
             return view
 class Renderer:
@@ -162,16 +169,28 @@ class Renderer:
         timer=self.tile(clock(view['elapsed_seconds']),white,True)
         timer=timer.resize((60,26),Image.Resampling.NEAREST)
         im.paste(timer,(66,14))
-        text('P'+str(view['period']),96,40,white)
+        period_count=view.get('period_count',2)
+        if view['period']>period_count:
+            text('OT'+str(view['period']-period_count),96,2,white)
+        elif 1<=period_count<=10:
+            gap=2; width=min(10,(60-(period_count-1)*gap)//period_count)
+            start=64+(64-(period_count*width+(period_count-1)*gap))//2
+            for index in range(period_count):
+                x=start+index*(width+gap)
+                draw.rectangle((x,4,x+width-1,7),fill=white if index+1==view['period'] else (55,55,55))
+        else:
+            text('P'+str(view['period']),96,2,white)
         status={'RUNNING':'LIVE','FINISHED':'FINAL','PERIOD_COMPLETE':'BREAK'}.get(view['status'],view['status'])
         remaining=view.get('timeout_seconds')
         if status=='OFFLINE': text('OFFLINE',96,47,yellow)
-        elif remaining is not None: text(f'TO {remaining}s',96,47,yellow)
+        elif remaining is not None:
+            team=view.get('timeout_team')
+            color=view['teams'][team]['color'] if type(team) is int and 0<=team<len(view['teams']) else yellow
+            text(str(remaining),96,45,color,True,outline=dark_color(color))
         for side,team in enumerate(view['teams']):
             offset=side*128
             color=team["color"]
-            # Display-only brightness heuristic; preserve the original team colour.
-            dark=sum(channel*weight for channel,weight in zip(color,(.2126,.7152,.0722)))<60
+            dark=dark_color(color)
             label_color=white if dark else color
             name=unicodedata.normalize('NFKD',team['name']).encode('ascii','ignore').decode().upper() or 'TEAM'
             if len(name)>10:

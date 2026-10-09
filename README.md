@@ -152,8 +152,18 @@ penalty area. Up to three penalty rows remain visible, cycling when there are mo
 Each penalty row aligns the player number to the left and the timer to the right
 of its team's panel.
 The main clock uses 20-pixel-tall digits in a 60-by-26-pixel text area, keeping
-its top position at row 14. The period label starts at row 40 below it. Long clock
-values are fitted to the same width within the centre panel.
+its top position at row 14. Period markers at the top fit the configured regular
+period count (1–10); the current period is white and the others are dim. Overtime
+uses an OT1/OT2 label, and configurations above ten periods use a compact period
+number. Long clock values are fitted to the same width within the centre panel.
+Timeout seconds appear alone below the match clock in the requesting team's
+colour, with a white outline for dark colours. There is no TO label, arrow, team
+name or progress bar. A missing timeout team uses neutral yellow instead of
+guessing a side; incomplete event history hides the timeout. Manual mode passes
+its configured period count and timeout owner to the same renderer.
+Clock semantics are unchanged: elapsed match time still resets for the next
+period. The planned cumulative-clock work for the server and Management is in
+[the Y-Sports handover](docs/y-sports-cumulative-clock-handover.md).
 Both penalty counters use the same yellow RGB value; physical
 colour consistency still depends on the panels and pin mapping. Intensity is not a
 hardware current limiter.

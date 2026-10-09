@@ -94,8 +94,9 @@ class ManualMatch:
             teams.append(dict(name=state['settings']['teamA' if index == 0 else 'teamB'], score=team['score'],
                               timeouts=team['timeoutsUsed'], color=((40, 200, 255), (255, 155, 40))[index],
                               penalties=[(p['number'], p['remainingSeconds']) for p in team['penalties']]))
-        return dict(teams=teams, period=state['period'], elapsed_seconds=state['clockSeconds'],
-                    timeout_seconds=state['timeoutRemaining'], revision=state['revision'],
+        return dict(teams=teams, period=state['period'], period_count=state['settings']['periods'], elapsed_seconds=state['clockSeconds'],
+                    timeout_seconds=state['timeoutRemaining'],
+                    timeout_team=state['timeout']['team'] if state['timeout'] else None, revision=state['revision'],
                     status='RUNNING' if state['running'] else ('PERIOD_COMPLETE' if state['elapsed'] >= state['settings']['periodSeconds'] else 'PAUSED'))
     def pause(self):
         with self.lock:

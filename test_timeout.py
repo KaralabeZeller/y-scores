@@ -49,7 +49,8 @@ class TimeoutTests(unittest.TestCase):
         with patch.object(renderer,'tile',wraps=renderer.tile) as tile:
             renderer.render(view)
             labels=[str(call.args[0]) for call in tile.call_args_list]
-            self.assertIn('TO 42s',labels)
+            self.assertIn('42',labels)
+            self.assertNotIn('TO 42s',labels)
             self.assertNotIn('PAUSED',labels)
 
 class EventFetchTests(unittest.TestCase):
