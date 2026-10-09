@@ -151,8 +151,9 @@ timeout markers appear without a TO label, with two blank pixel rows before the
 penalty area. Up to three penalty rows remain visible, cycling when there are more.
 Each penalty row aligns the player number to the left and the timer to the right
 of its team's panel.
-The main clock uses double-size 6-by-9-pixel digits at the same top position,
-with the period label below it. Long clock values are fitted to the centre panel.
+The main clock uses 20-pixel-tall digits in a 60-by-26-pixel text area, keeping
+its top position at row 14. The period label starts at row 40 below it. Long clock
+values are fitted to the same width within the centre panel.
 Both penalty counters use the same yellow RGB value; physical
 colour consistency still depends on the panels and pin mapping. Intensity is not a
 hardware current limiter.

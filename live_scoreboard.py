@@ -153,16 +153,16 @@ class Renderer:
         im=Image.new('RGB',(192,64)); draw=ImageDraw.Draw(im)
         frame_time=time.monotonic()
         white,yellow,dim=(235,235,235),(255,255,0),(70,70,70)
-        def text(label,center,y,color,big=False,scale=1,outline=False,max_width=None):
+        def text(label,center,y,color,big=False,scale=1,outline=False):
             tile=self.tile(str(label),color,big,scale,outline)
-            if max_width is not None and tile.width>max_width:
-                tile=tile.resize((max_width,tile.height),Image.Resampling.NEAREST)
             im.paste(tile,(int(center-tile.width/2),y-int(outline)))
         if view is None:
             text('CONNECTING',96,24,yellow)
             return im
-        text(clock(view['elapsed_seconds']),96,14,white,scale=2,max_width=64)
-        text('P'+str(view['period']),96,35,white)
+        timer=self.tile(clock(view['elapsed_seconds']),white,True)
+        timer=timer.resize((60,26),Image.Resampling.NEAREST)
+        im.paste(timer,(66,14))
+        text('P'+str(view['period']),96,40,white)
         status={'RUNNING':'LIVE','FINISHED':'FINAL','PERIOD_COMPLETE':'BREAK'}.get(view['status'],view['status'])
         remaining=view.get('timeout_seconds')
         if status=='OFFLINE': text('OFFLINE',96,47,yellow)
