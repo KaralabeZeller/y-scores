@@ -144,7 +144,14 @@ release's older platform-access behavior.
 
 The page includes a live preview, intensity control and schedule timezone. Settings
 are saved when you choose **Save display settings**. Names, scores and timeout markers use
-team primary colours. Both penalty counters use the same yellow RGB value; physical
+team primary colours. For dark colours (weighted RGB brightness below 60/255), names
+and used timeout markers turn white, while scores keep their team colour with a
+one-pixel white outline. Team colour data is unchanged. Three centred 6-by-2-pixel
+timeout markers appear without a TO label, with two blank pixel rows before the
+penalty area. Up to three penalty rows remain visible, cycling when there are more.
+Each penalty row aligns the player number to the left and the timer to the right
+of its team's panel.
+Both penalty counters use the same yellow RGB value; physical
 colour consistency still depends on the panels and pin mapping. Intensity is not a
 hardware current limiter.
 

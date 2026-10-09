@@ -13,7 +13,7 @@ import unicodedata
 from urllib.request import Request, urlopen
 from uuid import UUID
 from matrix_output import create_matrix, fill_framebuffer, TOPOLOGIES
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFilter
 from bdfparser import Font
 from live_state import MEDIA_TYPE, project, clock, primary_colors, timeout_seconds
 LOG = logging.getLogger('scoreboard')
@@ -133,23 +133,30 @@ class Renderer:
     def __init__(self,fonts):
         self.small=Font(str(fonts/'6x9.bdf')); self.big=Font(str(fonts/'8x13B.bdf'))
     @lru_cache(maxsize=512)
-    def tile(self,label,color,big=False,scale=1):
+    def tile(self,label,color,big=False,scale=1,outline=False):
         data=(self.big if big else self.small).draw(label,linelimit=2048).todata(2)
         tile=Image.new('RGB',(len(data[0]),len(data)))
         for y,row in enumerate(data):
             for x,on in enumerate(row):
                 if on: tile.putpixel((x,y),color)
-        return tile.resize((tile.width*scale,tile.height*scale),Image.Resampling.NEAREST)
+        tile=tile.resize((tile.width*scale,tile.height*scale),Image.Resampling.NEAREST)
+        if outline:
+            mask=self.tile(label,(255,255,255),big,scale).convert('L')
+            padded=Image.new('L',(tile.width+2,tile.height+2))
+            padded.paste(mask,(1,1))
+            tile=Image.new('RGB',padded.size)
+            tile.paste((235,235,235),(0,0),padded.filter(ImageFilter.MaxFilter(3)))
+            tile.paste(color,(0,0),padded)
+        return tile
     def render(self,view):
         im=Image.new('RGB',(192,64)); draw=ImageDraw.Draw(im)
         white,yellow,dim=(235,235,235),(255,255,0),(70,70,70)
-        def text(label,center,y,color,big=False,scale=1):
-            tile=self.tile(str(label),color,big,scale)
-            im.paste(tile,(int(center-tile.width/2),y))
+        def text(label,center,y,color,big=False,scale=1,outline=False):
+            tile=self.tile(str(label),color,big,scale,outline)
+            im.paste(tile,(int(center-tile.width/2),y-int(outline)))
         if view is None:
             text('CONNECTING',96,24,yellow)
             return im
-        text('Y-SPORTS',96,0,white)
         text(clock(view['elapsed_seconds']),96,14,white,True)
         text('P'+str(view['period']),96,31,white)
         status={'RUNNING':'LIVE','FINISHED':'FINAL','PERIOD_COMPLETE':'BREAK'}.get(view['status'],view['status'])
@@ -159,24 +166,30 @@ class Renderer:
         for side,team in enumerate(view['teams']):
             offset=side*128
             color=team["color"]
+            # Display-only brightness heuristic; preserve the original team colour.
+            dark=sum(channel*weight for channel,weight in zip(color,(.2126,.7152,.0722)))<60
+            label_color=white if dark else color
             name=unicodedata.normalize('NFKD',team['name']).encode('ascii','ignore').decode().upper() or 'TEAM'
             if len(name)>10:
                 cycle=name+'   '; start=int(time.monotonic()/.6)%len(cycle)
                 name=(cycle+cycle)[start:start+10]
-            text(name,offset+32,0,color)
+            text(name,offset+32,0,label_color)
             score=str(team['score'])
-            text(score,offset+32,10,color,True,2 if len(score)<=3 else 1)
-            text('TO',offset+10,34,color)
+            text(score,offset+32,10,color,True,2 if len(score)<=3 else 1,dark)
             for index in range(3):
-                x=offset+24+index*9
-                draw.rectangle((x,36,x+3,39),fill=color if index<team['timeouts'] else dim)
-            if team['timeouts']>3: text(str(team['timeouts']),offset+57,33,color)
+                x=offset+20+index*9
+                draw.rectangle((x,36,x+5,37),fill=label_color if index<team['timeouts'] else dim)
+            if team['timeouts']>3: text(str(team['timeouts']),offset+57,33,label_color)
             penalties=team['penalties']
             if len(penalties)>3:
                 start=(int(time.monotonic()/3)*3)%len(penalties)
                 penalties=(penalties+penalties)[start:start+3]
             for index,(number,remaining) in enumerate(penalties):
-                text(f'#{number} {clock(remaining)}',offset+32,41+index*8,yellow)
+                y=40+index*8
+                number_tile=self.tile(f'#{number}',yellow)
+                timer_tile=self.tile(clock(remaining),yellow)
+                im.paste(number_tile,(offset,y))
+                im.paste(timer_tile,(offset+64-timer_tile.width,y))
         return im
 
 def main():
