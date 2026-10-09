@@ -124,9 +124,10 @@ class Feed:
     def view(self):
         with self.lock:
             if not self.snapshot: return None
-            view = project(self.snapshot,time.monotonic()-self.received)
+            age = time.monotonic()-self.received
+            view = project(self.snapshot,age)
             view['match_id']=self.match; view['match_revision']=self.snapshot['revision']
-            view['timeout_seconds'] = timeout_seconds(self.snapshot,self.events,time.monotonic()-self.received) if self.events_revision >= self.snapshot['revision'] else None
+            view['timeout_seconds'] = timeout_seconds(self.snapshot,self.events,age) if self.events_revision >= self.snapshot['revision'] else None
             for team,color in zip(view["teams"],self.colors): team["color"] = color
             return view
 class Renderer:
@@ -150,15 +151,18 @@ class Renderer:
         return tile
     def render(self,view):
         im=Image.new('RGB',(192,64)); draw=ImageDraw.Draw(im)
+        frame_time=time.monotonic()
         white,yellow,dim=(235,235,235),(255,255,0),(70,70,70)
-        def text(label,center,y,color,big=False,scale=1,outline=False):
+        def text(label,center,y,color,big=False,scale=1,outline=False,max_width=None):
             tile=self.tile(str(label),color,big,scale,outline)
+            if max_width is not None and tile.width>max_width:
+                tile=tile.resize((max_width,tile.height),Image.Resampling.NEAREST)
             im.paste(tile,(int(center-tile.width/2),y-int(outline)))
         if view is None:
             text('CONNECTING',96,24,yellow)
             return im
-        text(clock(view['elapsed_seconds']),96,14,white,True)
-        text('P'+str(view['period']),96,31,white)
+        text(clock(view['elapsed_seconds']),96,14,white,scale=2,max_width=64)
+        text('P'+str(view['period']),96,35,white)
         status={'RUNNING':'LIVE','FINISHED':'FINAL','PERIOD_COMPLETE':'BREAK'}.get(view['status'],view['status'])
         remaining=view.get('timeout_seconds')
         if status=='OFFLINE': text('OFFLINE',96,47,yellow)
@@ -171,7 +175,7 @@ class Renderer:
             label_color=white if dark else color
             name=unicodedata.normalize('NFKD',team['name']).encode('ascii','ignore').decode().upper() or 'TEAM'
             if len(name)>10:
-                cycle=name+'   '; start=int(time.monotonic()/.6)%len(cycle)
+                cycle=name+'   '; start=int(frame_time/.6)%len(cycle)
                 name=(cycle+cycle)[start:start+10]
             text(name,offset+32,0,label_color)
             score=str(team['score'])
@@ -182,7 +186,7 @@ class Renderer:
             if team['timeouts']>3: text(str(team['timeouts']),offset+57,33,label_color)
             penalties=team['penalties']
             if len(penalties)>3:
-                start=(int(time.monotonic()/3)*3)%len(penalties)
+                start=(int(frame_time/3)*3)%len(penalties)
                 penalties=(penalties+penalties)[start:start+3]
             for index,(number,remaining) in enumerate(penalties):
                 y=40+index*8

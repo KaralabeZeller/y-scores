@@ -151,6 +151,8 @@ timeout markers appear without a TO label, with two blank pixel rows before the
 penalty area. Up to three penalty rows remain visible, cycling when there are more.
 Each penalty row aligns the player number to the left and the timer to the right
 of its team's panel.
+The main clock uses double-size 6-by-9-pixel digits at the same top position,
+with the period label below it. Long clock values are fitted to the centre panel.
 Both penalty counters use the same yellow RGB value; physical
 colour consistency still depends on the panels and pin mapping. Intensity is not a
 hardware current limiter.
@@ -160,6 +162,10 @@ window. The Pi receives the effective match. Match snapshots poll at 200 ms;
 network latency may cause small clock corrections. Timers freeze and show OFFLINE
 after 15 seconds without a fresh snapshot. Driver refresh is measured independently
 of the approximately 20 Hz content loop. The Pi never writes match data.
+Each frame uses one match snapshot and one sampled age for its clock, penalties
+and timeout countdown. Score and penalty changes appear together as soon as their
+snapshot arrives; timers keep their own event anchors without waiting for a shared
+whole-second tick. Manual mode also samples its clock once for each view.
 
 ## Device configuration and operation
 

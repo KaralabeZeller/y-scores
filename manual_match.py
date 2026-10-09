@@ -83,7 +83,7 @@ class ManualMatch:
                 team['penalties'] = [p | dict(remainingSeconds=max(0, math.ceil(p['expires'] - result['effective'])))
                                      for p in team['penalties'] if p['expires'] > result['effective']]
                 team['timeoutsRemaining'] = max(0, result['settings']['timeoutLimit'] - team['timeoutsUsed'])
-            result['timeoutRemaining'] = math.ceil(max(0, result['timeout']['until'] - self.now())) if result['timeout'] else None
+            result['timeoutRemaining'] = math.ceil(max(0, result['timeout']['until'] - self.anchor)) if result['timeout'] else None
             if result['timeout']: result['timeout'].pop('until')
             result['clockSeconds'] = int(result['elapsed']) if result['settings']['clockDirection'] == 'up' else math.ceil(result['settings']['periodSeconds'] - result['elapsed'])
             return result

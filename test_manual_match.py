@@ -1,6 +1,7 @@
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock
 from manual_match import ManualMatch, Conflict, SETTINGS
 
 class ManualTests(unittest.TestCase):
@@ -18,6 +19,12 @@ class ManualTests(unittest.TestCase):
         self.command('goal',team=0,delta=-1)
         with self.assertRaises(ValueError): self.command('goal',team=0,delta=-1)
         self.assertEqual(self.match.snapshot()['teams'][0]['score'],0)
+    def test_timeout_uses_the_snapshot_instant_at_second_boundary(self):
+        self.command('timeout',team=0)
+        self.match.now=Mock(side_effect=[101.999,102.001])
+        state=self.match.snapshot()
+        self.assertEqual(state['timeoutRemaining'],59)
+        self.assertFalse(state['running'])
     def test_clock_start_pause_and_period_end(self):
         self.command('setup',settings=SETTINGS|dict(periodSeconds=10))
         self.command('start'); self.time+=3.5

@@ -75,4 +75,37 @@ class FeedTests(unittest.TestCase):
         self.feed.fetch(); self.feed.fetch()
         self.assertEqual(self.feed.view()['status'],'PAUSED')
 
+    def test_frame_timeout_and_status_share_age_at_offline_boundary(self):
+        self.snapshot['state'].update(status='PAUSED',clockRunning=False)
+        self.feed.snapshot=self.snapshot
+        self.feed.received=100
+        self.feed.events_revision=self.snapshot['revision']
+        self.feed.events=[dict(id='timeout',revision=2,type='TEAM_TIMEOUT_RECORDED',
+                              period=1,effectiveElapsedMs=1860000,
+                              recordedAt='2026-09-29T12:00:00Z')]
+        with patch('live_scoreboard.time.monotonic',side_effect=[114.999,115.001]):
+            view=self.feed.view()
+        self.assertEqual(view['status'],'PAUSED')
+        self.assertEqual(view['timeout_seconds'],35)
+        with patch('live_scoreboard.time.monotonic',return_value=115.001):
+            view=self.feed.view()
+        self.assertEqual(view['status'],'OFFLINE')
+        self.assertIsNone(view['timeout_seconds'])
+
+    def test_score_and_penalty_correction_appear_in_same_frame(self):
+        revised=copy.deepcopy(self.snapshot)
+        revised['revision']=3
+        revised['state']['scoreTeamA']=9
+        revised['activeSuspensions']=[]
+        self.feed.connection.getresponse.side_effect=[self.response(self.snapshot),self.response(revised)]
+        with patch('live_scoreboard.time.monotonic',return_value=100):
+            self.feed.fetch()
+            before=self.feed.view()
+            self.feed.fetch()
+            after=self.feed.view()
+        self.assertEqual((before['revision'],before['teams'][0]['score']),(2,2))
+        self.assertTrue(before['teams'][0]['penalties'])
+        self.assertEqual((after['revision'],after['teams'][0]['score']),(3,9))
+        self.assertEqual(after['teams'][0]['penalties'],[])
+
 if __name__=='__main__': unittest.main()
