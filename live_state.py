@@ -18,6 +18,17 @@ def timestamp(value):
 def clock(seconds):
     seconds = max(0, int(seconds))
     return f'{seconds // 60:02}:{seconds % 60:02}'
+
+def penalty_display_seconds(expires_ms, effective_ms, period_elapsed_ms):
+    """Sample penalty digits on the period clock's whole-second boundaries.
+
+    Expiry checks must still use the exact effective clock, not this display value.
+    Translating the deadline to the period axis keeps fractional starts in sync;
+    the tiny tolerance only removes floating-point noise in that translation.
+    """
+    deadline_seconds = (expires_ms-effective_ms+period_elapsed_ms)/1000
+    return max(0, math.floor(deadline_seconds+1e-9)-math.floor(period_elapsed_ms/1000))
+
 def project(snapshot, age=0):
     state, config = snapshot['state'], snapshot['configuration']
     period = state['currentPeriod']
@@ -30,6 +41,7 @@ def project(snapshot, age=0):
         advance += min(max(age, 0), STALE_SECONDS)*1000
         advance = min(advance, max(0, duration-state['periodElapsedAnchorMs']))
     effective = state['effectiveElapsedAnchorMs']+advance
+    period_elapsed = min(duration,max(0,state['periodElapsedAnchorMs']+advance))
     teams = []
     for suffix, side in [('A','TEAM_A'),('B','TEAM_B')]:
         team = snapshot['participants']['team'+suffix]
@@ -39,11 +51,12 @@ def project(snapshot, age=0):
             remaining = penalty['expiresAtEffectiveElapsedMs']-effective
             if penalty['teamSide']==side and penalty['status']=='ACTIVE' and remaining>0:
                 number = numbers.get(penalty['participantId'])
-                penalties.append((number if number is not None else '?', math.floor(remaining/1000)))
+                penalties.append((number if number is not None else '?',
+                                  penalty_display_seconds(penalty['expiresAtEffectiveElapsedMs'],effective,period_elapsed)))
         teams.append(dict(name=team.get('name') or ('TEAM '+suffix), score=state['scoreTeam'+suffix],
                           timeouts=state['team'+suffix+'TimeoutsUsed'], penalties=sorted(penalties,key=lambda p:p[1])))
     return dict(teams=teams, period=period, period_count=config['regularPeriodCount'],
-                elapsed_seconds=int(min(duration,max(0,state['periodElapsedAnchorMs']+advance))//1000),
+                elapsed_seconds=int(period_elapsed//1000),
                 status='OFFLINE' if age>=STALE_SECONDS else state['status'], revision=snapshot['revision'])
 
 

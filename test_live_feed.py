@@ -57,7 +57,8 @@ class FeedTests(unittest.TestCase):
             view=self.feed.view()
             self.assertEqual(view['status'],'PAUSED')
             self.assertEqual(view['elapsed_seconds'],71)
-            self.assertEqual(view['teams'][0]['penalties'],[(6,108)])
+            # The digits retain the sample from the period clock's 71-second tick.
+            self.assertEqual(view['teams'][0]['penalties'],[(6,109)])
         self.assertEqual(self.feed.connection.request.call_count,2)
         self.feed.connection.close.assert_not_called()
     def test_failed_connection_resets_transport_preserves_last_snapshot(self):

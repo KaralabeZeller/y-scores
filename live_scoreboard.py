@@ -167,7 +167,7 @@ class Renderer:
             text('CONNECTING',96,24,yellow)
             return im
         timer=self.tile(clock(view['elapsed_seconds']),white,True)
-        timer=timer.resize((60,26),Image.Resampling.NEAREST)
+        timer=timer.resize((60,28),Image.Resampling.NEAREST)
         im.paste(timer,(66,14))
         period_count=view.get('period_count',2)
         if view['period']>period_count:
@@ -177,7 +177,7 @@ class Renderer:
             start=64+(64-(period_count*width+(period_count-1)*gap))//2
             for index in range(period_count):
                 x=start+index*(width+gap)
-                draw.rectangle((x,4,x+width-1,7),fill=white if index+1==view['period'] else (55,55,55))
+                draw.rectangle((x,4,x+width-1,5),fill=white if index+1==view['period'] else (55,55,55))
         else:
             text('P'+str(view['period']),96,2,white)
         status={'RUNNING':'LIVE','FINISHED':'FINAL','PERIOD_COMPLETE':'BREAK'}.get(view['status'],view['status'])

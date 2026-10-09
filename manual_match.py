@@ -6,6 +6,7 @@ import os
 import threading
 import time
 import uuid
+from live_state import penalty_display_seconds
 
 SETTINGS = dict(sport='handball', teamA='Team A', teamB='Team B', periodSeconds=1800,
                 periods=2, clockDirection='up', timeoutLimit=3, timeoutSeconds=60, penaltySeconds=120)
@@ -93,7 +94,8 @@ class ManualMatch:
         for index, team in enumerate(state['teams']):
             teams.append(dict(name=state['settings']['teamA' if index == 0 else 'teamB'], score=team['score'],
                               timeouts=team['timeoutsUsed'], color=((40, 200, 255), (255, 155, 40))[index],
-                              penalties=[(p['number'], p['remainingSeconds']) for p in team['penalties']]))
+                              penalties=[(p['number'], penalty_display_seconds(p['expires']*1000,state['effective']*1000,state['elapsed']*1000))
+                                         for p in team['penalties']]))
         return dict(teams=teams, period=state['period'], period_count=state['settings']['periods'], elapsed_seconds=state['clockSeconds'],
                     timeout_seconds=state['timeoutRemaining'],
                     timeout_team=state['timeout']['team'] if state['timeout'] else None, revision=state['revision'],

@@ -151,9 +151,9 @@ timeout markers appear without a TO label, with two blank pixel rows before the
 penalty area. Up to three penalty rows remain visible, cycling when there are more.
 Each penalty row aligns the player number to the left and the timer to the right
 of its team's panel.
-The main clock uses 20-pixel-tall digits in a 60-by-26-pixel text area, keeping
-its top position at row 14. Period markers at the top fit the configured regular
-period count (1–10); the current period is white and the others are dim. Overtime
+The main clock uses a 60-by-28-pixel text area, keeping its top position at row 14.
+Two-pixel-high period markers fit the configured regular period count (1–10);
+the current period is white and the others are dim. Overtime
 uses an OT1/OT2 label, and configurations above ten periods use a compact period
 number. Long clock values are fitted to the same width within the centre panel.
 Timeout seconds appear alone below the match clock in the requesting team's
@@ -174,9 +174,15 @@ network latency may cause small clock corrections. Timers freeze and show OFFLIN
 after 15 seconds without a fresh snapshot. Driver refresh is measured independently
 of the approximately 20 Hz content loop. The Pi never writes match data.
 Each frame uses one match snapshot and one sampled age for its clock, penalties
-and timeout countdown. Score and penalty changes appear together as soon as their
-snapshot arrives; timers keep their own event anchors without waiting for a shared
-whole-second tick. Manual mode also samples its clock once for each view.
+and timeout countdown. Penalty digits sample their remaining time at the match
+clock's whole-second boundaries, so all running timer digits tick together even
+when penalties started at different fractions of a second. This display-only
+sampling can lag the independently rounded countdown by less than one second;
+expired penalties still disappear on the first frame at or after their exact
+deadline. Scores, new penalties and corrections appear immediately. Pauses freeze
+the match clock and penalties; only the timeout countdown continues during a
+timeout. Manual displays use the same sampling for count-up and countdown clocks,
+without changing stored deadlines, served penalty time or control API values.
 
 ## Device configuration and operation
 
