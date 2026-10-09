@@ -84,7 +84,7 @@ class DisplayLayoutTests(unittest.TestCase):
                 self.assertEqual(blocks.count((235,235,235)),1)
                 self.assertEqual(frame.getpixel((64,4)),(0,0,0))
                 self.assertEqual(frame.getpixel((127,4)),(0,0,0))
-                self.assertIsNone(frame.crop((64,6,128,14)).getbbox())
+                self.assertIsNone(frame.crop((64,5,128,14)).getbbox())
 
     def test_overtime_and_large_count_use_readable_labels(self):
         for period,count,label in [(3,2,'OT1'),(11,12,'P11')]:

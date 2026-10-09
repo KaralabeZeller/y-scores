@@ -29,7 +29,51 @@ def penalty_display_seconds(expires_ms, effective_ms, period_elapsed_ms):
     deadline_seconds = (expires_ms-effective_ms+period_elapsed_ms)/1000
     return max(0, math.floor(deadline_seconds+1e-9)-math.floor(period_elapsed_ms/1000))
 
-def project(snapshot, age=0):
+class PenaltyDisplay:
+    """Keep unchanged live penalty digits attached to the visible match tick.
+
+    One instance belongs to one Feed and is accessed under that Feed's lock.
+    Refreshing an unchanged event must not recalculate its displayed deadline.
+    """
+    def __init__(self):
+        self.values = {}
+        self.revision = None
+        self.timing = None
+
+    def begin(self, snapshot, tick):
+        state = snapshot['state']
+        timing = (state['currentPeriod'], state['status'], state['clockRunning'],
+                  state.get('clockAnchorAt'), state['periodElapsedAnchorMs'],
+                  state['effectiveElapsedAnchorMs'])
+        # New clock commands may legitimately move penalty time in either direction.
+        # Same-revision refreshes, however, are never a new operator correction.
+        if self.timing is not None and (
+                timing[:3] != self.timing[:3] or
+                (snapshot['revision'] != self.revision and timing != self.timing)):
+            self.values.clear()
+        self.revision, self.timing, self.tick = snapshot['revision'], timing, tick
+        self.active = set()
+
+    def seconds(self, side, penalty, candidate, expired=False):
+        key = (side, penalty.get('sourceEventId'), penalty['participantId'],
+               penalty['expiresAtEffectiveElapsedMs'])
+        self.active.add(key)
+        # Once expired, a refresh with an older time sample must not revive a row.
+        if expired or (key in self.values and self.values[key] is None):
+            self.values[key] = None
+            return None
+        deadline, previous = self.values.get(key, (self.tick+candidate, candidate))
+        # Network jitter may briefly move the main projection backwards; never
+        # increase an unchanged penalty in response. A clock correction resets us.
+        displayed = min(previous, max(0, deadline-self.tick))
+        self.values[key] = deadline, displayed
+        return displayed
+
+    def finish(self):
+        self.values = {key:value for key,value in self.values.items() if key in self.active}
+
+
+def project(snapshot, age=0, penalty_display=None):
     state, config = snapshot['state'], snapshot['configuration']
     period = state['currentPeriod']
     duration = config['regularPeriodDurationMs'] if period <= config['regularPeriodCount'] else config['overtimePeriodDurationMs']
@@ -42,6 +86,9 @@ def project(snapshot, age=0):
         advance = min(advance, max(0, duration-state['periodElapsedAnchorMs']))
     effective = state['effectiveElapsedAnchorMs']+advance
     period_elapsed = min(duration,max(0,state['periodElapsedAnchorMs']+advance))
+    elapsed_seconds = int(period_elapsed//1000)
+    if penalty_display is not None:
+        penalty_display.begin(snapshot, elapsed_seconds)
     teams = []
     for suffix, side in [('A','TEAM_A'),('B','TEAM_B')]:
         team = snapshot['participants']['team'+suffix]
@@ -49,14 +96,20 @@ def project(snapshot, age=0):
         penalties = []
         for penalty in snapshot['activeSuspensions']:
             remaining = penalty['expiresAtEffectiveElapsedMs']-effective
-            if penalty['teamSide']==side and penalty['status']=='ACTIVE' and remaining>0:
+            if penalty['teamSide']==side and penalty['status']=='ACTIVE':
                 number = numbers.get(penalty['participantId'])
-                penalties.append((number if number is not None else '?',
-                                  penalty_display_seconds(penalty['expiresAtEffectiveElapsedMs'],effective,period_elapsed)))
+                seconds = penalty_display_seconds(penalty['expiresAtEffectiveElapsedMs'],effective,period_elapsed)
+                if penalty_display is not None:
+                    seconds = penalty_display.seconds(side, penalty, seconds, remaining<=0)
+                if remaining<=0 or seconds is None:
+                    continue
+                penalties.append((number if number is not None else '?', seconds))
         teams.append(dict(name=team.get('name') or ('TEAM '+suffix), score=state['scoreTeam'+suffix],
                           timeouts=state['team'+suffix+'TimeoutsUsed'], penalties=sorted(penalties,key=lambda p:p[1])))
+    if penalty_display is not None:
+        penalty_display.finish()
     return dict(teams=teams, period=period, period_count=config['regularPeriodCount'],
-                elapsed_seconds=int(period_elapsed//1000),
+                elapsed_seconds=elapsed_seconds,
                 status='OFFLINE' if age>=STALE_SECONDS else state['status'], revision=snapshot['revision'])
 
 

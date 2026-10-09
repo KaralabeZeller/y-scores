@@ -2,8 +2,10 @@ import copy
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import Mock, patch
 
 from live_state import project
+from live_scoreboard import Feed
 from manual_match import ManualMatch, SETTINGS
 import test_live_state
 
@@ -69,6 +71,80 @@ class LiveTimerSyncTests(unittest.TestCase):
         for age in (.1,.8,1.1,15,50):project(self.snapshot,age)
         self.assertEqual(self.snapshot,before)
         self.assertEqual(project(self.snapshot,15),project(self.snapshot,50))
+
+
+class LiveFeedTimerSyncTests(unittest.TestCase):
+    def setUp(self):
+        fixture=test_live_state.ProjectionTests();fixture.setUp()
+        self.snapshot=fixture.snapshot
+        self.snapshot['matchId']='7ccdc25d-c50e-49a1-be46-cba1cf9d482d'
+        self.snapshot['serverTime']='2026-09-29T12:00:00Z'
+        self.snapshot['state'].update(periodElapsedAnchorMs=424200,effectiveElapsedAnchorMs=424200)
+        self.snapshot['activeSuspensions'][0]['expiresAtEffectiveElapsedMs']=480000
+        self.snapshot['participants']['teamB']['players']=[dict(id='p2',playerNumber=8)]
+        self.snapshot['activeSuspensions'].append(dict(teamSide='TEAM_B',participantId='p2',
+            status='ACTIVE',expiresAtEffectiveElapsedMs=485800))
+        self.feed=Feed('https://example.invalid/api-next',self.snapshot['matchId'],device_request=Mock())
+        self.addCleanup(self.feed.connection.close)
+
+    def refresh(self,age=0):
+        self.feed.device_request.return_value=copy.deepcopy(self.snapshot)
+        with patch('live_scoreboard.time.monotonic',return_value=100):self.feed.fetch()
+        with patch('live_scoreboard.time.monotonic',return_value=100+age):return self.feed.view()
+
+    def digits(self,age=0):
+        view=self.refresh(age)
+        return view['elapsed_seconds'],[p[1] for team in view['teams'] for p in team['penalties']]
+
+    def test_poll_anchor_jitter_cannot_change_digits_between_main_ticks(self):
+        self.assertEqual(self.digits(),(424,[56,61]))
+        for delta in (1,-1,2,0):
+            self.snapshot['state']['effectiveElapsedAnchorMs']=424200+delta
+            self.assertEqual(self.digits(.4),(424,[56,61]))
+        self.assertEqual(self.digits(.81),(425,[55,60]))
+        self.assertEqual(self.digits(.9),(425,[55,60]))
+
+    def test_poll_time_regression_cannot_increase_penalties(self):
+        self.assertEqual(self.digits(.81),(425,[55,60]))
+        self.assertEqual(self.digits(.79),(424,[55,60]))
+        self.assertEqual(self.digits(.81),(425,[55,60]))
+        self.assertEqual(self.digits(1.81),(426,[54,59]))
+
+    def test_score_event_does_not_rephase_unchanged_penalties(self):
+        self.digits(.81)
+        self.snapshot['revision']+=1
+        self.snapshot['state']['scoreTeamA']=9
+        view=self.refresh(.79)
+        self.assertEqual(view['teams'][0]['score'],9)
+        self.assertEqual(view['teams'][0]['penalties'],[(6,55)])
+
+    def test_real_clock_correction_can_increase_penalty_immediately(self):
+        self.digits()
+        self.snapshot['revision']+=1
+        self.snapshot['state']['effectiveElapsedAnchorMs']-=10000
+        self.assertEqual(self.digits(),(424,[66,71]))
+
+    def test_changed_new_and_removed_penalties_apply_within_same_tick(self):
+        self.digits()
+        self.snapshot['revision']+=1
+        self.snapshot['activeSuspensions'][0]['expiresAtEffectiveElapsedMs']=490000
+        new=copy.deepcopy(self.snapshot['activeSuspensions'][0])
+        new.update(sourceEventId='new',expiresAtEffectiveElapsedMs=450000)
+        self.snapshot['activeSuspensions'].append(new)
+        self.assertEqual(self.refresh()['teams'][0]['penalties'],[(6,26),(6,66)])
+        self.snapshot['revision']+=1
+        self.snapshot['activeSuspensions']=[]
+        self.assertEqual(self.refresh()['teams'][0]['penalties'],[])
+        self.assertEqual(self.feed.penalty_display.values,{})
+
+    def test_exact_expiry_cannot_flicker_back_after_poll_time_regression(self):
+        self.snapshot['activeSuspensions'][0]['expiresAtEffectiveElapsedMs']=424500
+        self.assertEqual(self.refresh(.299)['teams'][0]['penalties'],[(6,0)])
+        self.assertEqual(self.refresh(.301)['teams'][0]['penalties'],[])
+        self.assertEqual(self.refresh(.299)['teams'][0]['penalties'],[])
+        self.snapshot['revision']+=1
+        self.snapshot['state']['effectiveElapsedAnchorMs']-=10000
+        self.assertEqual(self.refresh()['teams'][0]['penalties'],[(6,10)])
 
 
 class ManualTimerSyncTests(unittest.TestCase):

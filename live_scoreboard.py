@@ -15,7 +15,7 @@ from uuid import UUID
 from matrix_output import create_matrix, fill_framebuffer, TOPOLOGIES
 from PIL import Image, ImageDraw, ImageFilter
 from bdfparser import Font
-from live_state import MEDIA_TYPE, project, clock, primary_colors, timeout_details
+from live_state import MEDIA_TYPE, project, clock, primary_colors, timeout_details, PenaltyDisplay
 LOG = logging.getLogger('scoreboard')
 
 def dark_color(color):
@@ -37,6 +37,7 @@ class Feed:
         self.colors = primary_colors({})
         self.lock = threading.Lock()
         self.snapshot = None
+        self.penalty_display = PenaltyDisplay()
         self.received = 0
         self.stop = threading.Event()
         self.events = []
@@ -130,7 +131,7 @@ class Feed:
         with self.lock:
             if not self.snapshot: return None
             age = time.monotonic()-self.received
-            view = project(self.snapshot,age)
+            view = project(self.snapshot,age,self.penalty_display)
             view['match_id']=self.match; view['match_revision']=self.snapshot['revision']
             timeout = timeout_details(self.snapshot,self.events,age) if self.events_revision >= self.snapshot['revision'] else None
             view['timeout_seconds'] = timeout['seconds'] if timeout is not None else None
@@ -177,7 +178,7 @@ class Renderer:
             start=64+(64-(period_count*width+(period_count-1)*gap))//2
             for index in range(period_count):
                 x=start+index*(width+gap)
-                draw.rectangle((x,4,x+width-1,5),fill=white if index+1==view['period'] else (55,55,55))
+                draw.rectangle((x,4,x+width-1,4),fill=white if index+1==view['period'] else (55,55,55))
         else:
             text('P'+str(view['period']),96,2,white)
         status={'RUNNING':'LIVE','FINISHED':'FINAL','PERIOD_COMPLETE':'BREAK'}.get(view['status'],view['status'])

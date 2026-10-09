@@ -180,9 +180,13 @@ when penalties started at different fractions of a second. This display-only
 sampling can lag the independently rounded countdown by less than one second;
 expired penalties still disappear on the first frame at or after their exact
 deadline. Scores, new penalties and corrections appear immediately. Pauses freeze
-the match clock and penalties; only the timeout countdown continues during a
-timeout. Manual displays use the same sampling for count-up and countdown clocks,
-without changing stored deadlines, served penalty time or control API values.
+the match clock and penalties. Live penalty digits retain their displayed deadline
+across feed refreshes, preventing timing jitter from adding extra ticks or making
+an unchanged penalty count backwards. Expired rows stay hidden until a genuine
+clock or penalty correction makes them active again. During a timeout,
+only the timeout countdown continues. Manual displays use the same sampling for
+count-up and countdown clocks, without changing stored deadlines, served penalty
+time or control API values.
 
 ## Device configuration and operation
 
