@@ -19,8 +19,8 @@ from live_state import MEDIA_TYPE, project, clock, primary_colors, timeout_detai
 LOG = logging.getLogger('scoreboard')
 
 def dark_color(color):
-    # Display-only brightness heuristic; preserve the original team colour.
-    return sum(channel*weight for channel,weight in zip(color,(.2126,.7152,.0722)))<60
+    # Reserve contrast assistance for near-black, not saturated red or blue.
+    return max(color)<60
 
 class Feed:
     def __init__(self, base, match, poll_interval=.2, device_request=None):
@@ -157,7 +157,7 @@ class Renderer:
             tile.paste((235,235,235),(0,0),padded.filter(ImageFilter.MaxFilter(3)))
             tile.paste(color,(0,0),padded)
         return tile
-    def render(self,view):
+    def render(self,view,swap_teams=False):
         im=Image.new('RGB',(192,64)); draw=ImageDraw.Draw(im)
         frame_time=time.monotonic()
         white,yellow,dim=(235,235,235),(255,255,0),(70,70,70)
@@ -188,8 +188,10 @@ class Renderer:
             team=view.get('timeout_team')
             color=view['teams'][team]['color'] if type(team) is int and 0<=team<len(view['teams']) else yellow
             text(str(remaining),96,45,color,True,outline=dark_color(color))
+        # Match orientation composes with the board's saved physical orientation.
+        display_swapped = bool(swap_teams) != bool(view.get('sides_swapped', False))
         for side,team in enumerate(view['teams']):
-            offset=side*128
+            offset=(1-side if display_swapped else side)*128
             color=team["color"]
             dark=dark_color(color)
             label_color=white if dark else color

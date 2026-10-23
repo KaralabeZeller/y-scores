@@ -95,7 +95,7 @@ assignments and content through its authenticated outbound connection.
 Local backup modes are **Manual**, **Logo** and **Blank**. Selecting and saving one
 takes local control. Reconnection never interrupts this choice; explicitly choose
 **Return to platform control** when ready. Returning pauses the local manual clock.
-Saving brightness or timezone alone does not take control, replace an assignment
+Saving brightness, team orientation or timezone alone does not take control, replace an assignment
 or pause manual play. A new device defaults to the logo.
 
 Saved legacy Match/Court/Schedule configurations remain on disk for rollback,
@@ -142,9 +142,27 @@ without Manual support, apply Logo first; the older release will retain the
 manual-match file but cannot operate it. Rolling back also restores that
 release's older platform-access behavior.
 
+In **Display**, **Swap teams on the physical scoreboard** is enabled by default
+for a board facing opposite the official. Disable it and choose **Save display
+settings** if the installation needs the protocol order. Each team's name, colour,
+score, timeout markers and penalties move together; text stays readable and the
+centre clock stays in place. The device setting applies only to the Pi scoreboard
+for live and manual matches, plus its local hardware preview. For live matches,
+**Swap sides** on the protocol desk also flips the scoreboard and OBS stream order.
+The scoreboard combines this shared match orientation with its saved device setting,
+so an opposite-facing board retains that relationship after each desk swap. Team
+identities and match data remain unchanged. Manual controls and schedule listings
+retain their original order. The device choice does not change platform control.
+Older servers without the shared orientation field retain the existing device order.
+New and existing installations without a saved orientation default to swapped
+sides. Explicitly saved choices are preserved. The installer needs
+no new options. Orientation is saved in `state/display-layout.json`; preserve it
+with the other device state. Older releases ignore this file during rollback and
+show the original order; upgrading again restores the saved orientation.
+
 The page includes a live preview, intensity control and schedule timezone. Settings
 are saved when you choose **Save display settings**. Names, scores and timeout markers use
-team primary colours. For dark colours (weighted RGB brightness below 60/255), names
+team primary colours. For near-black colours (all RGB channels below 60/255), names
 and used timeout markers turn white, while scores keep their team colour with a
 one-pixel white outline. Team colour data is unchanged. Three centred 6-by-2-pixel
 timeout markers appear without a TO label, with two blank pixel rows before the
@@ -157,7 +175,7 @@ the current period is white and the others are dim. Overtime
 uses an OT1/OT2 label, and configurations above ten periods use a compact period
 number. Long clock values are fitted to the same width within the centre panel.
 Timeout seconds appear alone below the match clock in the requesting team's
-colour, with a white outline for dark colours. There is no TO label, arrow, team
+colour, with a white outline for near-black colours. There is no TO label, arrow, team
 name or progress bar. A missing timeout team uses neutral yellow instead of
 guessing a side; incomplete event history hides the timeout. Manual mode passes
 its configured period count and timeout owner to the same renderer.

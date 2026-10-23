@@ -46,6 +46,10 @@ class Device:
         self.path=path; self.base=base
         self.lock=threading.RLock(); self.apply_lock=threading.Lock(); self.stop=threading.Event()
         self.config=validate_config(json.loads(path.read_text()) if path.exists() else DEFAULTS)
+        self.layout_path=path.parent/'display-layout.json'
+        layout=json.loads(self.layout_path.read_text()) if self.layout_path.exists() else {}
+        self.swap_teams=layout.get('swap_teams',True)
+        if type(self.swap_teams) is not bool: raise ValueError('Swap teams must be a boolean')
         self.version=0; self.feed=None; self.feed_threads=[]; self.active_id=None
         self.matches=[]; self.next_match=None; self.error=''; self.catalog_at=0; self.finished=set()
         self.image=Image.new('RGB',(192,64)); self.frame_at=0; self.hardware_error=''
@@ -62,7 +66,7 @@ class Device:
         self.update_reserved_until=0; self.network_status={'state':'CHECKING'}
     def effective_settings(self):
         with self.lock:
-            config=dict(self.config); desired=self.control.desired
+            config=self.settings(); desired=self.control.desired
             if config['mode'] in CLOUD_MODES: config.update(mode='logo',match_id='',court_id='',tournament_id='')
             if not self.control.value['localTakeover'] and self.control.authorized and self.platform_available() and desired:
                 if desired.get('mode')=='MATCH' and desired.get('effectiveMatchId'):
@@ -158,21 +162,30 @@ class Device:
         if not self.platform_available():
             raise PlatformRequired('Pair this device and enable a healthy Y-Sports connection, or use manual handball control')
     def settings(self):
-        with self.lock: return dict(self.config)
+        with self.lock: return dict(self.config,swap_teams=self.swap_teams)
     def apply(self,value):
         if not isinstance(value,dict): raise ValueError('Expected display settings')
         if value.get('mode') in CLOUD_MODES or any(key in value for key in ('match_id','court_id','tournament_id')):
             raise PlatformRequired('Assign matches, courts and schedules in Y-Sports management')
-        if set(value)-{'mode','brightness','timezone'}: raise ValueError('Unknown display settings')
+        if set(value)-{'mode','brightness','timezone','swap_teams'}: raise ValueError('Unknown display settings')
         with self.apply_lock:
             self.guard_update()
-            config=validate_config(self.settings()|value)
+            selected=self.settings()|value
+            swap_teams=selected.pop('swap_teams')
+            if type(swap_teams) is not bool: raise ValueError('Swap teams must be a boolean')
+            config=validate_config(selected)
             if 'mode' in value and config['mode']!='manual': self.manual.pause()
             save_config(self.path,config)
+            if 'swap_teams' in value:
+                temporary=self.layout_path.with_suffix('.tmp')
+                with temporary.open('w',encoding='utf-8') as output:
+                    json.dump(dict(swap_teams=swap_teams),output)
+                    output.flush(); os.fsync(output.fileno())
+                temporary.replace(self.layout_path)
             with self.lock:
                 if 'mode' in value: self.control.local_selection(True); self.version+=1
-                self.config=config
-        return config
+                self.config=config; self.swap_teams=swap_teams
+        return self.settings()
     def switch_feed(self,match_id):
         if match_id: self.require_platform()
         with self.lock:
@@ -245,7 +258,7 @@ class Device:
             if feed: feed.stop.set()
             mode='logo'
         if mode=='blank': image=Image.new('RGB',(192,64))
-        elif mode=='manual': image=self.renderer.render(self.manual.view())
+        elif mode=='manual': image=self.renderer.render(self.manual.view(),swap_teams=config['swap_teams'])
         elif mode=='logo': image=self.screens.logo_screen(address)
         elif mode=='schedule':
             if not self.schedule_failed and self.schedule_revision==control_revision and catalog_at and time.monotonic()-catalog_at<15:
@@ -254,7 +267,7 @@ class Device:
         elif mode=='court' and not feed: image=self.screens.upcoming(upcoming,config)
         else:
             rendered_view=feed.view() if feed else None
-            image=self.renderer.render(rendered_view)
+            image=self.renderer.render(rendered_view,swap_teams=config['swap_teams'])
         if mode in ('court','schedule') and (error or not catalog_at or time.monotonic()-catalog_at>30):
             # Make stale schedule data visible rather than silently presenting it as current.
             from PIL import ImageDraw

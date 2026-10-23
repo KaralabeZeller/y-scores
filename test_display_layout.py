@@ -61,6 +61,50 @@ class DisplayLayoutTests(unittest.TestCase):
         frame=self.renderer.render(self.view)
         self.assertIn((235,235,235),[colour for _,colour in frame.crop((64,44,128,59)).getcolors()])
 
+    def test_saturated_team_colours_do_not_get_white_contrast_assistance(self):
+        for color in ((255,0,0),(0,0,255),(0,255,0),(60,0,0)):
+            with self.subTest(color=color):
+                self.view['teams'][0].update(color=color,timeouts=1)
+                self.view['timeout_team']=0
+                frame=self.renderer.render(self.view)
+                for region in ((0,0,64,39),(64,44,128,59)):
+                    colours={colour for _,colour in frame.crop(region).getcolors()}
+                    self.assertIn(color,colours)
+                    self.assertNotIn((235,235,235),colours)
+
+    def test_near_black_scores_keep_readable_white_outline(self):
+        self.view['teams'][0]['color']=(59,59,59)
+        frame=self.renderer.render(self.view)
+        colours={colour for _,colour in frame.crop((0,10,64,36)).getcolors()}
+        self.assertIn((59,59,59),colours)
+        self.assertIn((235,235,235),colours)
+
+    def test_swap_moves_complete_team_panels_without_changing_clock_or_owner(self):
+        self.view['teams'][0].update(score=12,timeouts=1,penalties=[(7,93)])
+        self.view['teams'][1].update(score=25,timeouts=2,penalties=[(19,42)])
+        before=copy.deepcopy(self.view)
+        with patch('live_scoreboard.time.monotonic',return_value=100):
+            normal=self.renderer.render(self.view)
+            swapped=self.renderer.render(self.view,swap_teams=True)
+        self.assertEqual(normal.crop((0,0,64,64)).tobytes(),swapped.crop((128,0,192,64)).tobytes())
+        self.assertEqual(normal.crop((128,0,192,64)).tobytes(),swapped.crop((0,0,64,64)).tobytes())
+        self.assertEqual(normal.crop((64,0,128,64)).tobytes(),swapped.crop((64,0,128,64)).tobytes())
+        self.assertEqual(self.view,before)
+
+    def test_match_swap_composes_with_saved_physical_orientation(self):
+        with patch('live_scoreboard.time.monotonic',return_value=100):
+            for device_swapped in (False, True):
+                with self.subTest(device_swapped=device_swapped):
+                    self.view['sides_swapped'] = False
+                    original = self.renderer.render(self.view,swap_teams=device_swapped)
+                    self.view['sides_swapped'] = True
+                    swapped = self.renderer.render(self.view,swap_teams=device_swapped)
+                    self.assertEqual(original.crop((0,0,64,64)).tobytes(),swapped.crop((128,0,192,64)).tobytes())
+                    self.assertEqual(original.crop((128,0,192,64)).tobytes(),swapped.crop((0,0,64,64)).tobytes())
+                    self.assertEqual(original.crop((64,0,128,64)).tobytes(),swapped.crop((64,0,128,64)).tobytes())
+                    self.view['sides_swapped'] = False
+                    self.assertEqual(self.renderer.render(self.view,swap_teams=device_swapped).tobytes(),original.tobytes())
+
     def test_offline_overrides_timeout_and_no_regular_period_text(self):
         self.view['status']='OFFLINE'
         with patch.object(self.renderer,'tile',wraps=self.renderer.tile) as tile:

@@ -1,0 +1,8 @@
+{
+  "autodeskProduct": "Fusion360",
+  "type": "script",
+  "author": "Y-Scores",
+  "description": {"": "Create the quick-print three-panel joining brackets and two tabletop feet."},
+  "version": "1.0.0",
+  "supportedOS": "windows|mac"
+}

@@ -11,6 +11,17 @@ class ProjectionTests(unittest.TestCase):
                        periodElapsedAnchorMs=60000,effectiveElapsedAnchorMs=1860000,
                        scoreTeamA=2,scoreTeamB=1,teamATimeoutsUsed=1,teamBTimeoutsUsed=0),
             activeSuspensions=[dict(teamSide='TEAM_A',participantId='p1',status='ACTIVE',expiresAtEffectiveElapsedMs=1980000)])
+    def test_shared_orientation_preserves_team_identity_and_legacy_default(self):
+        original = project(self.snapshot)
+        self.assertFalse(original['sides_swapped'])
+        self.snapshot['state']['sidesSwapped'] = True
+        swapped = project(self.snapshot)
+        self.assertTrue(swapped['sides_swapped'])
+        self.assertEqual(swapped['teams'], original['teams'])
+        self.assertEqual(swapped['elapsed_seconds'], original['elapsed_seconds'])
+        self.snapshot['state']['sidesSwapped'] = False
+        self.assertEqual(project(self.snapshot), original)
+
     def test_server_anchor_and_monotonic_age(self):
         view=project(self.snapshot,2)
         self.assertEqual(view['elapsed_seconds'],72)

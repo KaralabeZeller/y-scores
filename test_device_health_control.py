@@ -22,6 +22,33 @@ class HealthControlTests(unittest.TestCase):
         self.device.platform_available=lambda:True
     def tearDown(self): self.tmp.cleanup()
     def desired(self,revision=1): return dict(revision=revision,mode='MATCH',effectiveMatchId=MATCH,state='PENDING')
+    def test_team_orientation_persists_without_taking_platform_control(self):
+        self.assertTrue(self.device.settings()['swap_teams'])
+        self.device.accept_control(self.desired(),True)
+        self.device.apply(dict(swap_teams=True))
+        self.assertEqual(self.device.effective_settings()['match_id'],MATCH)
+        self.assertFalse(self.device.control.value['localTakeover'])
+        with patch.object(self.device.renderer,'render',return_value=Image.new('RGB',(192,64))) as render:
+            self.device.render()
+        render.assert_called_once_with(None,swap_teams=True)
+        restarted=Device(self.path/'config.json','https://example.test',ROOT/'fonts')
+        self.assertTrue(restarted.settings()['swap_teams'])
+        restarted.apply(dict(mode='manual'))
+        protocol_view=restarted.manual.view()
+        self.assertEqual(restarted.state()['match']['teams'],protocol_view['teams'])
+        with patch.object(restarted.renderer,'render',return_value=Image.new('RGB',(192,64))) as render:
+            restarted.render()
+        self.assertTrue(render.call_args.kwargs['swap_teams'])
+        self.assertEqual(render.call_args.args[0]['teams'],protocol_view['teams'])
+        self.assertEqual(restarted.state()['match']['teams'],protocol_view['teams'])
+        restarted.apply(dict(swap_teams=False))
+        self.assertFalse(Device(self.path/'config.json','https://example.test',ROOT/'fonts').settings()['swap_teams'])
+
+    def test_team_orientation_rejects_non_boolean_values(self):
+        for value in (None,0,1,'false',[],{}):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.device.apply(dict(swap_teams=value))
+        self.assertTrue(self.device.settings()['swap_teams'])
     def test_start_screen_cycles_hostname_and_numeric_address(self):
         self.device.admin_hostname='http://y-scores-5ea0.local:8080/'
         self.device.admin_urls=['http://192.168.1.25:8080/']

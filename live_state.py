@@ -108,7 +108,8 @@ def project(snapshot, age=0, penalty_display=None):
                           timeouts=state['team'+suffix+'TimeoutsUsed'], penalties=sorted(penalties,key=lambda p:p[1])))
     if penalty_display is not None:
         penalty_display.finish()
-    return dict(teams=teams, period=period, period_count=config['regularPeriodCount'],
+    return dict(teams=teams, sides_swapped=state.get('sidesSwapped', False) is True,
+                period=period, period_count=config['regularPeriodCount'],
                 elapsed_seconds=elapsed_seconds,
                 status='OFFLINE' if age>=STALE_SECONDS else state['status'], revision=snapshot['revision'])
 
