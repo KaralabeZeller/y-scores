@@ -107,6 +107,30 @@ Unpaired, revoked, disabled or disconnected devices cannot display platform data
 Platform authorization expires after at most 35 seconds without successful status.
 Manual backup remains independent, including on the recovery hotspot.
 
+### Full display test
+
+In the PIN-protected local admin, open **Display → Full display test** and choose
+**Start display test**. The one-minute sequence identifies logical panels **1 (left),
+2 (center), 3 (right)** individually, with a border and a TOP arrow to check orientation.
+It then shows red, green, blue, cyan, magenta, yellow, white and black on all panels,
+followed by matching hue sweeps and grayscale ramps, an alternating single-pixel
+checkerboard, and moving rows and columns across the whole display.
+Use the live preview and phase label to compare expected colors and panel positions.
+
+The test uses the saved LED intensity and the configured panel order, rotations and
+RGB/BGR pinout in both parallel and chain wiring. Numbers describe the intended
+left-to-right display, not cable port numbers. Incorrect positions or orientation
+indicate that the installation mapping needs adjustment; wrong primary colors can
+indicate an incorrect pinout. Black checks for pixels stuck on, and the checkerboard
+and moving lines help reveal missing pixels, rows, columns or panel seams.
+
+**Stop test** ends it early; otherwise the current display returns after 60 seconds,
+even if the browser closes. Match clocks and platform assignments continue while
+the test is showing. Use it between games. It does not change saved settings or
+take platform control, and a restart clears it. Software activation waits while the
+test is active. No migration is needed; normal installation and rollback preserve
+device settings, PINs and `/etc/y-scores.env` as before.
+
 ### Local handball control
 
 Unlock with the existing device PIN, open **Display**, choose **Manual**, then

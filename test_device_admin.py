@@ -90,6 +90,18 @@ class AdminTests(unittest.TestCase):
         with self.assertRaises(HTTPError) as error: self.request('/api/config',DEFAULTS,cookie)
         self.assertEqual(error.exception.code,403); error.exception.close()
         self.server.device.apply.assert_not_called()
+    def test_display_test_requires_session_and_csrf(self):
+        self.server.device.set_display_test.return_value={'active':True}
+        with self.assertRaises(HTTPError) as error: self.request('/api/display-test',{'action':'start'})
+        self.assertEqual(error.exception.code,401); error.exception.close()
+        cookie=self.login(); token=self.csrf; self.csrf=''
+        with self.assertRaises(HTTPError) as error: self.request('/api/display-test',{'action':'start'},cookie)
+        self.assertEqual(error.exception.code,403); error.exception.close()
+        self.server.device.set_display_test.assert_not_called()
+        self.csrf=token
+        with self.request('/api/display-test',{'action':'start'},cookie) as response:
+            self.assertTrue(json.load(response)['active'])
+        self.server.device.set_display_test.assert_called_once_with({'action':'start'})
     def test_return_to_platform_requires_pin_session_and_csrf(self):
         self.server.device.resume_platform.return_value={'local_takeover':False}
         with self.assertRaises(HTTPError) as error: self.request('/api/platform/resume',{})

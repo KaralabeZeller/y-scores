@@ -20,6 +20,7 @@ from PIL import Image
 from live_scoreboard import Feed, Renderer
 from device_model import DEFAULTS, validate_config, save_config
 from device_screens import Screens
+import display_test
 from device_identity import Identity
 from platform_client import Platform
 from network_client import Network
@@ -64,6 +65,18 @@ class Device:
         self.remote_request=None; self.feed_scoped=False; self.admin_urls=[]; self.admin_hostname=None
         self.schedule_revision=None; self.schedule_failed=False
         self.update_reserved_until=0; self.network_status={'state':'CHECKING'}
+        self.display_test_started=None
+    def display_test_status(self):
+        with self.lock:
+            elapsed=None if self.display_test_started is None else time.monotonic()-self.display_test_started
+            return display_test.status(elapsed)
+    def set_display_test(self,value):
+        if set(value)!={'action'} or value['action'] not in ('start','stop'):
+            raise ValueError('Display test action must be start or stop')
+        with self.apply_lock,self.lock:
+            self.guard_update()
+            self.display_test_started=time.monotonic() if value['action']=='start' else None
+            return self.display_test_status()
     def effective_settings(self):
         with self.lock:
             config=self.settings(); desired=self.control.desired
@@ -99,7 +112,7 @@ class Device:
         with self.apply_lock,self.lock:
             network_busy=self.network_status.get('state') not in ('CONNECTED','UNAVAILABLE')
             reason='NETWORK_BUSY' if network_busy else None
-            if deferred(self.path.parent/'update-deferral.json') or self.control.value['localTakeover'] or self.effective_settings()['mode']=='manual': reason='LOCAL_EVENT'
+            if self.display_test_status()['active'] or deferred(self.path.parent/'update-deferral.json') or self.control.value['localTakeover'] or self.effective_settings()['mode']=='manual': reason='LOCAL_EVENT'
             elif not reason and self.effective_settings()['mode']=='match':
                 view=self.feed.view() if self.feed else None
                 if not view or str(view.get('status','')).upper() not in ('FINISHED','COMPLETED','CANCELLED'): reason='MATCH_ACTIVE'
@@ -119,6 +132,8 @@ class Device:
         now=time.monotonic(); available=self.platform_available()
         with self.lock:
             mode=self.rendered_mode; match=self.rendered_match if available else None
+            # Keep the existing server telemetry enum; TEST is a local-only mode.
+            if mode=='TEST': mode='UNKNOWN'
             feed=self.feed if match else None
             revision=self.rendered_revision if match else None
             frame=age_ms(self.frame_at,now); output=age_ms(self.output_at,now)
@@ -250,6 +265,12 @@ class Device:
             admin_urls=([self.admin_hostname] if self.admin_hostname else [])+list(self.admin_urls)
             desired=self.control.desired
             control_revision=desired.get('revision') if desired else None
+            test_elapsed=None if self.display_test_started is None else time.monotonic()-self.display_test_started
+        if display_test.status(test_elapsed)['active']:
+            image=display_test.render(test_elapsed)
+            self.pending_frame=('TEST',None,None,None)
+            if publish: self.publish_frame(image,*self.pending_frame)
+            return image,config['brightness']
         mode=config['mode']
         address=admin_urls[int(time.monotonic()/8)%len(admin_urls)].removeprefix('http://').rstrip('/') if admin_urls else None
         rendered_view=None
@@ -300,7 +321,9 @@ class Device:
             selected=self.effective_settings()
             blocked=selected['mode'] in CLOUD_MODES and not available
             view=self.manual.view() if selected['mode']=='manual' else (self.feed.view() if self.feed and not blocked and selected['mode']=='match' else None)
-            return dict(config=self.effective_settings(),effective_mode='logo' if blocked else self.effective_settings()['mode'],
+            test=self.display_test_status()
+            return dict(config=self.effective_settings(),effective_mode='test' if test['active'] else ('logo' if blocked else self.effective_settings()['mode']),
+                        display_test=test,
                         local_takeover=self.control.value['localTakeover'],
                         platform_assignment=copy.deepcopy(self.control.desired),
                         platform_available=available,manual=manual,active_match_id=self.active_id if not blocked and selected['mode'] in ('match','court') else None,match=view,error=self.error,
@@ -424,7 +447,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(200,{'ok':True})
             if self.path not in ('/api/logout',): self.server.device.guard_update()
             if self.path in {'/api/identity','/api/setup/complete','/api/platform/claim','/api/platform/cancel',
-                             '/api/platform/enabled','/api/platform/recover','/api/config','/api/manual','/api/network/connect','/api/network/confirm','/api/network/reopen'}:
+                             '/api/platform/enabled','/api/platform/recover','/api/config','/api/display-test','/api/manual','/api/network/connect','/api/network/confirm','/api/network/reopen'}:
                 try: self.server.network.request('authenticated-activity')
                 except (ValueError,OSError): pass
             if self.path=='/api/identity': return self.send(200,self.server.identity.save(value.get('name'),value.get('id')))
@@ -444,6 +467,7 @@ class Handler(BaseHTTPRequestHandler):
             if self.path=='/api/network/confirm': return self.send(200,self.network_mutation('confirm'))
             if self.path=='/api/network/reopen': return self.send(200,self.network_mutation('reopen'))
             if self.path=='/api/config': return self.send(200,self.server.device.apply(value))
+            if self.path=='/api/display-test': return self.send(200,self.server.device.set_display_test(value))
             if self.path=='/api/manual':
                 with self.server.device.apply_lock:
                     self.server.device.guard_update()
@@ -537,7 +561,7 @@ def main():
             identity=server.identity.public()
             frame_metadata=device.pending_frame
             with setup_network_lock: network=dict(setup_network)
-            if not identity['setupComplete'] or (network.get('state')=='RECOVERY_HOTSPOT' and device.settings()['mode']!='manual'):
+            if frame_metadata[0]!='TEST' and (not identity['setupComplete'] or (network.get('state')=='RECOVERY_HOTSPOT' and device.settings()['mode']!='manual')):
                 # Existing recovery credentials stay case-sensitive; the saved PIN is not redisplayed.
                 page=int(time.monotonic()/8)%2
                 image=device.screens.setup_screen(identity,server.auth.pin,socket.gethostname(),network,args.port,page)
