@@ -80,14 +80,14 @@ class Feed:
                 with urlopen(Request(self.metadata_url,headers={"Cache-Control":"no-cache"}),timeout=5) as response:
                     colors = primary_colors(json.load(response))
             with self.lock:
-                if colors != self.colors: LOG.info("Team primary colors: %s", colors)
+                if colors != self.colors: LOG.info("Team match colors: %s", colors)
                 self.colors = colors
         except Exception as error:
             LOG.warning("Team colors unavailable; retaining palette: %s",error)
     def run_colors(self):
         while not self.stop.is_set():
             self.fetch_colors()
-            self.stop.wait(30)
+            self.stop.wait(2)
     def fetch(self):
         started = time.monotonic()
         try:

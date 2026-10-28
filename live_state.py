@@ -4,11 +4,18 @@ import math
 import re
 
 def primary_colors(metadata):
+    """Resolve match colours in team identity order, independent of display sides."""
     colors = []
     for key, fallback in [("teamA", (40,200,255)), ("teamB", (255,155,40))]:
-        value = ((metadata.get(key) or {}).get("details") or {}).get("home_color")
-        colors.append(tuple(int(value[i:i+2],16) for i in (1,3,5))
-                      if isinstance(value,str) and re.fullmatch(r"#[0-9a-fA-F]{6}",value) else fallback)
+        details = (metadata.get(key) or {}).get("details") or {}
+        fields = ["match_color", "matchColor"]
+        if key == "teamB":
+            fields += ["visitor_color", "visitorColor", "away_color", "awayColor"]
+        fields += ["home_color", "homeColor"]
+        value = next((details.get(field) for field in fields
+                      if isinstance(details.get(field), str)
+                      and re.fullmatch(r"#[0-9a-fA-F]{6}", details[field])), None)
+        colors.append(tuple(int(value[i:i+2],16) for i in (1,3,5)) if value else fallback)
     return colors
 
 STALE_SECONDS = 15

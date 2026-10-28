@@ -186,7 +186,13 @@ show the original order; upgrading again restores the saved orientation.
 
 The page includes a live preview, intensity control and schedule timezone. Settings
 are saved when you choose **Save display settings**. Names, scores and timeout markers use
-team primary colours. For near-black colours (all RGB channels below 60/255), names
+the effective match colours chosen on the protocol desk: Team A defaults to its
+home kit and Team B to its away kit, falling back to home if no away colour exists.
+Match-only colour overrides refresh every two seconds without interrupting the
+clock feed; a failed refresh retains the last palette. Colours stay attached to
+team identities when either the desk or the device swaps display sides. Older
+servers providing only `home_color` keep that colour for each team. Schedule
+listings remain unchanged. For near-black colours (all RGB channels below 60/255), names
 and used timeout markers turn white, while scores keep their team colour with a
 one-pixel white outline. Team colour data is unchanged. Three centred 6-by-2-pixel
 timeout markers appear without a TO label, with two blank pixel rows before the

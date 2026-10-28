@@ -44,6 +44,35 @@ class FeedTests(unittest.TestCase):
         self.addCleanup(replacement.connection.close)
         replacement.fetch_colors()
         self.assertEqual(replacement.colors,[(40,200,255),(255,155,40)])
+    def test_color_refresh_updates_live_match_without_snapshot_revision_change(self):
+        self.feed.snapshot = self.snapshot
+        self.feed.received = 100
+        self.snapshot['state']['sidesSwapped'] = True
+        self.feed.device_request = Mock(side_effect=[
+            dict(teamA=dict(details=dict(match_color='#112233')),teamB=dict(details=dict(match_color='#445566'))),
+            dict(teamA=dict(details=dict(match_color='#abcdef')),teamB=dict(details=dict(match_color='#000000'))),
+            ConnectionError('offline')])
+        with patch('live_scoreboard.time.monotonic', return_value=100):
+            self.feed.fetch_colors()
+            before = self.feed.view()
+            self.feed.fetch_colors()
+            after = self.feed.view()
+            self.assertEqual(before['revision'], after['revision'])
+            self.assertTrue(after['sides_swapped'])
+            self.assertEqual([t['name'] for t in before['teams']], [t['name'] for t in after['teams']])
+            self.assertEqual([t['color'] for t in after['teams']], [(171,205,239),(0,0,0)])
+            with self.assertLogs('scoreboard', level='WARNING'):
+                self.feed.fetch_colors()
+            self.assertEqual(self.feed.view(), after)
+
+    def test_color_refresh_runs_independently_every_two_seconds(self):
+        self.feed.stop = Mock()
+        self.feed.stop.is_set.side_effect = [False, False, True]
+        with patch.object(self.feed, 'fetch_colors') as refresh:
+            self.feed.run_colors()
+        self.assertEqual(refresh.call_count, 2)
+        self.assertEqual([call.args for call in self.feed.stop.wait.call_args_list], [(2,), (2,)])
+
     def test_pause_replaces_extrapolated_clock_immediately(self):
         paused=copy.deepcopy(self.snapshot)
         paused['revision']=3

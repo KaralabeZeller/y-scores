@@ -61,8 +61,23 @@ class ProjectionTests(unittest.TestCase):
         self.snapshot['state'].update(currentPeriod=3,periodElapsedAnchorMs=299000)
         self.assertEqual(project(self.snapshot,2)['elapsed_seconds'],300)
 class ColorTests(unittest.TestCase):
-    def test_primary_color_not_visitor_color(self):
+    def test_home_side_uses_home_and_away_without_kit_uses_home(self):
         self.assertEqual(primary_colors(dict(teamA=dict(details=dict(home_color='#008000',visitor_color='#ffffff')),teamB=dict(details=dict(home_color='#f8181e')))),[(0,128,0),(248,24,30)])
+    def test_away_side_uses_away_kit(self):
+        metadata = dict(teamA=dict(details=dict(home_color='#112233',visitor_color='#ffffff')),
+                        teamB=dict(details=dict(home_color='#445566',visitor_color='#aabbcc')))
+        self.assertEqual(primary_colors(metadata), [(17,34,51),(170,187,204)])
+
+    def test_match_overrides_take_precedence_including_black(self):
+        metadata = dict(teamA=dict(details=dict(match_color='#000000',home_color='#112233')),
+                        teamB=dict(details=dict(matchColor='#fF0011',visitorColor='#aabbcc',homeColor='#445566')))
+        self.assertEqual(primary_colors(metadata), [(0,0,0),(255,0,17)])
+
+    def test_invalid_or_reset_overrides_fall_back_to_valid_kit(self):
+        metadata = dict(teamA=dict(details=dict(match_color='transparent',homeColor='#112233')),
+                        teamB=dict(details=dict(match_color=None,visitor_color='bad',awayColor='#aabbcc',home_color='#445566')))
+        self.assertEqual(primary_colors(metadata), [(17,34,51),(170,187,204)])
+
     def test_missing_or_invalid_colors_use_fallback(self):
         self.assertEqual(primary_colors(dict(teamA=None,teamB=dict(details=dict(home_color='bad')))),[(40,200,255),(255,155,40)])
 
