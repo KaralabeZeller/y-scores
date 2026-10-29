@@ -92,20 +92,5 @@ class Screens:
         self.text(image,(self.time_label(match,config['timezone'])+'  '+court)[:31],96,48,(100,180,255),True)
         return image
     def schedule(self,matches,config,upcoming_only=False):
-        image=Image.new('RGB',(192,64))
-        matches=filtered_matches(matches,config['court_id'])
-        if upcoming_only: matches=[m for m in matches if str(m.get('status','')).upper() not in DONE]
-        # Keep fixtures still to play first. Historic fixtures remain browseable.
-        matches=([m for m in matches if str(m.get('status','')).upper() not in DONE]
-                 +[m for m in matches if str(m.get('status','')).upper() in DONE])
-        pages=max(1,(len(matches)+2)//3); page=int(time.monotonic()/6)%pages
-        self.text(image,f'{"UP NEXT" if upcoming_only else "SCHEDULE"} {page+1}/{pages}',96,0,(100,180,255),True)
-        if not matches: self.text(image,'NO MATCHES SCHEDULED',96,28,center=True)
-        for row,match in enumerate(matches[page*3:page*3+3]):
-            y=13+row*17
-            a=(match.get('teamA') or {}).get('name') or 'TBD'; b=(match.get('teamB') or {}).get('name') or 'TBD'
-            self.text(image,f'{self.time_label(match,config["timezone"])} {a[:11]} / {b[:11]}',2,y)
-            date=str(match.get('matchTime') or '')[:10]
-            court=(match.get('court') or {}).get('name') or 'Court TBD'
-            self.text(image,(date+' '+court)[:31],2,y+8,(100,120,150))
-        return image
+        from schedule_screen import render
+        return render(matches,config)

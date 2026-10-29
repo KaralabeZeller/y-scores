@@ -69,12 +69,12 @@ class HealthControlTests(unittest.TestCase):
         self.device.matches=[dict(id=MATCH,status='NOT_STARTED',teamA={'name':'Next team'},teamB={'name':'Visitors'}),
                              dict(id=SESSION,status='FINISHED',teamA={'name':'Old team'})]
         self.device.catalog_at=time.monotonic(); self.device.schedule_revision=4
-        with patch.object(self.device.screens,'text',wraps=self.device.screens.text) as text:
+        with patch('schedule_screen.text',wraps=__import__('schedule_screen').text) as text:
             self.device.render()
         labels=[str(call.args[1]) for call in text.call_args_list]
-        self.assertIn('UP NEXT 1/1',labels)
-        self.assertTrue(any('Next team' in label for label in labels))
-        self.assertFalse(any('Old team' in label for label in labels))
+        self.assertIn('UP NEXT',labels)
+        self.assertTrue(any('NEXT TEAM' in label for label in labels))
+        self.assertFalse(any('OLD TEAM' in label for label in labels))
         self.assertEqual(self.device.rendered_mode,'SCHEDULE')
         self.assertEqual(self.device.control.ack['status'],'APPLIED')
         self.device.accept_control(self.desired(5)|dict(baseAssignment={'kind':'COURT'}),True)
