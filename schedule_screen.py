@@ -1,5 +1,7 @@
-"""Native 192x64 next-three schedule using a compact pixel alphabet."""
+"""Native 192x64 next-two schedule using a compact pixel alphabet."""
 from datetime import datetime
+from functools import lru_cache
+from pathlib import Path
 from zoneinfo import ZoneInfo
 import unicodedata
 from PIL import Image, ImageDraw
@@ -10,7 +12,33 @@ GLYPHS = {'A': ['010', '101', '111', '101', '101'], 'B': ['110', '101', '110', '
 def label(value):
     return unicodedata.normalize('NFKD', str(value)).encode('ascii', 'ignore').decode().upper()
 
-def text(image, value, x, y, color, scale=1, max_width=None):
+@lru_cache(maxsize=1)
+def default_renderer():
+    from live_scoreboard import Renderer
+    return Renderer(Path(__file__).parent/'fonts')
+
+def text_width(value):
+    return max(0,sum(len(GLYPHS.get(c,GLYPHS[' '])[0])+1 for c in label(value))-1)
+
+def fit_label(value, width):
+    value=label(value)
+    while value and text_width(value)>width: value=value[:-1]
+    return value
+
+def scroll_offset(width, viewport, elapsed):
+    overflow=max(0,width-viewport)
+    if not overflow: return 0
+    travel=overflow/18
+    phase=max(0,elapsed)%(1.3+travel+1.5)
+    return min(overflow,max(0,int((phase-1.3)*18)))
+
+def text(image, value, x, y, color, scale=1, max_width=None, renderer=None, elapsed=0):
+    if renderer is not None:
+        tile=renderer.tile(label(value),color,big=True)
+        width=max_width or image.width-x
+        offset=scroll_offset(tile.width,width,elapsed)
+        image.paste(tile.crop((offset,0,offset+width,13)),(x,y))
+        return
     draw = ImageDraw.Draw(image)
     edge = x + max_width if max_width is not None else image.width
     for char in label(value):
@@ -23,33 +51,35 @@ def text(image, value, x, y, color, scale=1, max_width=None):
                     draw.rectangle((x+dx*scale,y+dy*scale,x+(dx+1)*scale-1,y+(dy+1)*scale-1),fill=color)
         x += width + scale
 
-def render(matches, config):
+def render(matches, config, renderer=None, elapsed=0):
     image = Image.new('RGB', (192,64))
     draw = ImageDraw.Draw(image)
     rows = [m for m in filtered_matches(matches,config.get('court_id',''))
-            if str(m.get('status','')).upper() not in DONE][:3]
+            if str(m.get('status','')).upper() not in DONE][:2]
     def local_time(match):
         try: return datetime.fromisoformat(match['matchTime'].replace('Z','+00:00')).astimezone(ZoneInfo(config['timezone']))
         except (KeyError,ValueError,TypeError): return None
     text(image,'UP NEXT',3,3,(255,212,59))
     if rows:
         date = local_time(rows[0])
-        text(image,date.strftime('%d %b') if date else 'DATE TBD',59,3,(190,212,236),max_width=38)
+        date_label=date.strftime('%d %b') if date else 'DATE TBD'
+        text(image,date_label,96-text_width(date_label)//2,3,(190,212,236))
         courts = {(m.get('court') or {}).get('name') or 'COURT TBD' for m in rows}
         court = next(iter(courts)) if len(courts)==1 else 'MULTI COURT'
-        text(image,court,110,3,(190,212,236),max_width=79)
+        court=fit_label(court,74)
+        text(image,court,190-text_width(court),3,(190,212,236))
     draw.line((3,11,188,11),fill=(49,67,82))
     if not rows: text(image,'NO UPCOMING MATCHES',59,29,(190,212,236))
     for i, match in enumerate(rows):
-        y=15+i*16
+        y=14+i*25
         accent=(255,212,59) if i==0 else (133,203,255)
-        draw.rectangle((2,y,41,y+12),fill=(40,48,26) if i==0 else (16,27,38))
-        draw.line((2,y,2,y+12),fill=accent)
+        draw.rectangle((2,y+4,41,y+16),fill=(40,48,26) if i==0 else (16,27,38))
+        draw.line((2,y+4,2,y+16),fill=accent)
         date=local_time(match)
-        text(image,date.strftime('%H:%M') if date else 'TBD',5,y+2,accent,2,max_width=36)
-        a=label((match.get('teamA') or {}).get('name') or 'TBD')[:16]
-        b=label((match.get('teamB') or {}).get('name') or 'TBD')[:16]
-        text(image,a+' / '+b,48,y+1,(242,245,248),max_width=142)
+        text(image,date.strftime('%H:%M') if date else 'TBD',5,y+6,accent,2,max_width=36)
+        a=label((match.get('teamA') or {}).get('name') or 'TBD')
+        b=label((match.get('teamB') or {}).get('name') or 'TBD')
+        text(image,a+' / '+b,48,y,(242,245,248),max_width=142,renderer=renderer or default_renderer(),elapsed=elapsed)
         category=match.get('categoryName') or (match.get('category') or {}).get('name') or 'CATEGORY TBD'
-        text(image,category,48,y+8,(131,169,200),max_width=142)
+        text(image,category,48,y+16,(131,169,200),max_width=142)
     return image

@@ -93,4 +93,8 @@ class Screens:
         return image
     def schedule(self,matches,config,upcoming_only=False):
         from schedule_screen import render
-        return render(matches,config)
+        key=tuple((m.get('id'),str(m.get('teamA')),str(m.get('teamB')),m.get('status')) for m in matches)
+        now=time.monotonic()
+        if getattr(self,'schedule_key',None)!=key:
+            self.schedule_key=key; self.schedule_started=now
+        return render(matches,config,renderer=self.renderer,elapsed=now-self.schedule_started)
