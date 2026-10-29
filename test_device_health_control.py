@@ -49,14 +49,38 @@ class HealthControlTests(unittest.TestCase):
             with self.subTest(value=value), self.assertRaises(ValueError):
                 self.device.apply(dict(swap_teams=value))
         self.assertTrue(self.device.settings()['swap_teams'])
-    def test_start_screen_cycles_hostname_and_numeric_address(self):
+    def test_start_screen_only_shows_numeric_address(self):
         self.device.admin_hostname='http://y-scores-5ea0.local:8080/'
         self.device.admin_urls=['http://192.168.1.25:8080/']
         with patch.object(self.device.screens,'logo_screen',wraps=self.device.screens.logo_screen) as screen:
             for timestamp in (0,8,16):
                 with patch('device_admin.time.monotonic',return_value=timestamp):self.device.render()
         self.assertEqual([call.args[0] for call in screen.call_args_list],
-                         ['y-scores-5ea0.local:8080','192.168.1.25:8080','y-scores-5ea0.local:8080'])
+                         ['192.168.1.25:8080']*3)
+    def test_logo_does_not_fall_back_to_hostname_without_an_ip(self):
+        self.device.admin_hostname='http://board.local:8080/'
+        with patch.object(self.device.screens,'logo_screen',wraps=self.device.screens.logo_screen) as screen:
+            self.device.render()
+        screen.assert_called_once_with(None)
+
+    def test_court_schedule_shows_upcoming_fixtures_and_live_assignment_takes_over(self):
+        desired=dict(revision=4,mode='SCHEDULE',state='PENDING',baseAssignment={'kind':'COURT'})
+        self.device.accept_control(desired,True)
+        self.device.matches=[dict(id=MATCH,status='NOT_STARTED',teamA={'name':'Next team'},teamB={'name':'Visitors'}),
+                             dict(id=SESSION,status='FINISHED',teamA={'name':'Old team'})]
+        self.device.catalog_at=time.monotonic(); self.device.schedule_revision=4
+        with patch.object(self.device.screens,'text',wraps=self.device.screens.text) as text:
+            self.device.render()
+        labels=[str(call.args[1]) for call in text.call_args_list]
+        self.assertIn('UP NEXT 1/1',labels)
+        self.assertTrue(any('Next team' in label for label in labels))
+        self.assertFalse(any('Old team' in label for label in labels))
+        self.assertEqual(self.device.rendered_mode,'SCHEDULE')
+        self.assertEqual(self.device.control.ack['status'],'APPLIED')
+        self.device.accept_control(self.desired(5)|dict(baseAssignment={'kind':'COURT'}),True)
+        self.assertEqual(self.device.effective_settings()['mode'],'match')
+        self.assertEqual(self.device.matches,[])
+
     def test_default_logo_accepts_first_assignment_but_intentional_blank_does_not(self):
         self.device.accept_control(self.desired(),True)
         self.assertEqual(self.device.effective_settings()['match_id'],MATCH)

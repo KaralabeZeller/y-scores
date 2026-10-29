@@ -262,7 +262,7 @@ class Device:
         with self.lock:
             config=self.effective_settings(); feed=self.feed; matches=self.matches; upcoming=self.next_match; error=self.error
             catalog_at=self.catalog_at
-            admin_urls=([self.admin_hostname] if self.admin_hostname else [])+list(self.admin_urls)
+            admin_urls=list(self.admin_urls)
             desired=self.control.desired
             control_revision=desired.get('revision') if desired else None
             test_elapsed=None if self.display_test_started is None else time.monotonic()-self.display_test_started
@@ -283,7 +283,7 @@ class Device:
         elif mode=='logo': image=self.screens.logo_screen(address)
         elif mode=='schedule':
             if not self.schedule_failed and self.schedule_revision==control_revision and catalog_at and time.monotonic()-catalog_at<15:
-                image=self.screens.schedule(matches,config)
+                image=self.screens.schedule(matches,config,upcoming_only=(desired.get('baseAssignment') or {}).get('kind')=='COURT')
             else: mode='logo'; image=self.screens.logo_screen(address)
         elif mode=='court' and not feed: image=self.screens.upcoming(upcoming,config)
         else:

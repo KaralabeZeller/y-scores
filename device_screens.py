@@ -91,14 +91,15 @@ class Screens:
         court=(match.get('court') or {}).get('name') or ''
         self.text(image,(self.time_label(match,config['timezone'])+'  '+court)[:31],96,48,(100,180,255),True)
         return image
-    def schedule(self,matches,config):
+    def schedule(self,matches,config,upcoming_only=False):
         image=Image.new('RGB',(192,64))
         matches=filtered_matches(matches,config['court_id'])
+        if upcoming_only: matches=[m for m in matches if str(m.get('status','')).upper() not in DONE]
         # Keep fixtures still to play first. Historic fixtures remain browseable.
         matches=([m for m in matches if str(m.get('status','')).upper() not in DONE]
                  +[m for m in matches if str(m.get('status','')).upper() in DONE])
         pages=max(1,(len(matches)+2)//3); page=int(time.monotonic()/6)%pages
-        self.text(image,f'SCHEDULE {page+1}/{pages}',96,0,(100,180,255),True)
+        self.text(image,f'{"UP NEXT" if upcoming_only else "SCHEDULE"} {page+1}/{pages}',96,0,(100,180,255),True)
         if not matches: self.text(image,'NO MATCHES SCHEDULED',96,28,center=True)
         for row,match in enumerate(matches[page*3:page*3+3]):
             y=13+row*17

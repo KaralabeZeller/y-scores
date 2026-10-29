@@ -563,6 +563,14 @@ the same revision without changing identity or device credentials.
 
 ### Remote schedule support
 
+Court-follow assignments show an **UP NEXT** schedule between live matches within
+their configured operating window. Finished/cancelled fixtures are omitted; a
+live match automatically takes over. This requires the matching server change in
+`y-sports-core` as well as the device update. Outside the operating window the
+logo remains the fallback. Existing schedule freshness and assignment checks apply.
+The logo screen displays numeric admin IP addresses only, never the optional
+`.local` hostname (which remains available in the admin interface).
+
 `remote-schedule-v1` adds an authenticated `GET /scoreboard-device/schedule`
 feed. The server binds it to the effective typed scope, optional court and explicit
 operating window, returns at most 100 fixtures, and supplies the control revision.
