@@ -211,7 +211,8 @@ class Device:
         if match_id==self.active_id and scoped==self.feed_scoped and (not self.feed or not self.feed.stop.is_set()): return
         old=self.feed
         if old: old.stop.set()
-        for thread in self.feed_threads: thread.join(timeout=6)
+        # Each worker owns its old Feed. Let in-flight requests finish without
+        # delaying the first snapshot for the newly selected match.
         feed=Feed(self.base,match_id,device_request=self.remote_request if scoped else None) if match_id else None
         with self.lock: self.feed=feed; self.active_id=match_id; self.feed_scoped=scoped
         self.feed_threads=[]

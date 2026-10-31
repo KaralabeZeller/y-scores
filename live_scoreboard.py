@@ -22,6 +22,19 @@ def dark_color(color):
     # Reserve contrast assistance for near-black, not saturated red or blue.
     return max(color)<60
 
+def display_color(color):
+    """Lift dim LED colours toward white while retaining their hue.
+
+    Panel RGB values drive LED intensity directly. Blue contributes much less
+    perceived brightness than green, even when its channel is already at 255.
+    Near-black teams retain the existing white-label/outlined-score treatment.
+    """
+    if dark_color(color): return color
+    brightness=sum(channel*weight for channel,weight in zip(color,(.2126,.7152,.0722)))
+    if brightness>=110: return color
+    amount=(110-brightness)/(255-brightness)
+    return tuple(round(channel+(255-channel)*amount) for channel in color)
+
 class Feed:
     def __init__(self, base, match, poll_interval=.2, device_request=None):
         self.match = str(UUID(match))
@@ -141,6 +154,7 @@ class Feed:
 class Renderer:
     def __init__(self,fonts):
         self.small=Font(str(fonts/'6x9.bdf')); self.big=Font(str(fonts/'8x13B.bdf'))
+        self.name_scroll={}
     @lru_cache(maxsize=512)
     def tile(self,label,color,big=False,scale=1,outline=False):
         data=(self.big if big else self.small).draw(label,linelimit=2048).todata(2)
@@ -186,20 +200,32 @@ class Renderer:
         if status=='OFFLINE': text('OFFLINE',96,47,yellow)
         elif remaining is not None:
             team=view.get('timeout_team')
-            color=view['teams'][team]['color'] if type(team) is int and 0<=team<len(view['teams']) else yellow
+            color=display_color(view['teams'][team]['color']) if type(team) is int and 0<=team<len(view['teams']) else yellow
             text(str(remaining),96,45,color,True,outline=dark_color(color))
         # Match orientation composes with the board's saved physical orientation.
         display_swapped = bool(swap_teams) != bool(view.get('sides_swapped', False))
         for side,team in enumerate(view['teams']):
             offset=(1-side if display_swapped else side)*128
-            color=team["color"]
+            color=display_color(team["color"])
             dark=dark_color(color)
             label_color=white if dark else color
             name=unicodedata.normalize('NFKD',team['name']).encode('ascii','ignore').decode().upper() or 'TEAM'
-            if len(name)>10:
-                cycle=name+'   '; start=int(frame_time/.6)%len(cycle)
-                name=(cycle+cycle)[start:start+10]
-            text(name,offset+32,0,label_color)
+            name_tile=self.tile(name,label_color)
+            if name_tile.width>64:
+                key=(view.get('match_id'),name)
+                previous=self.name_scroll.get(side)
+                if previous is None or previous[0]!=key:
+                    self.name_scroll[side]=(key,frame_time)
+                elapsed=max(0,frame_time-self.name_scroll[side][1]-1)
+                cycle=name_tile.width+18
+                position=int(elapsed*12)%cycle
+                strip=Image.new('RGB',(64,9))
+                strip.paste(name_tile,(-position,0))
+                strip.paste(name_tile,(cycle-position,0))
+                im.paste(strip,(offset,0))
+            else:
+                self.name_scroll.pop(side,None)
+                text(name,offset+32,0,label_color)
             score=str(team['score'])
             text(score,offset+32,10,color,True,2 if len(score)<=3 else 1,dark)
             for index in range(3):

@@ -3,6 +3,7 @@ import copy
 from datetime import datetime, timezone
 import json
 import re
+import random
 import threading
 import time
 from uuid import uuid4, UUID
@@ -231,13 +232,65 @@ class Platform:
                 self.report_sequence+=1
                 body.update(telemetrySession=self.telemetry_session,reportSequence=self.report_sequence,telemetry=telemetry)
             self.accept(self.request('POST', '/heartbeat',body))
-            claim = self.request('GET', '/claim')
-            if claim.get('state') != 'ACTIVE':
-                with self.lock: self.claim = None
+            if not self.status.get('owner'):
+                claim = self.request('GET', '/claim')
+                if claim.get('state') != 'ACTIVE':
+                    with self.lock: self.claim = None
     def run(self):
+        stream=threading.Thread(target=self.run_control_stream,daemon=True)
+        stream.start()
         while not self.stop.is_set():
             try: self.tick()
             except Exception as error:
                 # No response bodies, headers, credentials or PINs in logs/status.
                 with self.lock: self.error = str(error) if isinstance(error, ValueError) else 'Platform unavailable; retrying'
             self.stop.wait(15)
+
+    def read_control_stream(self):
+        """Invalidations carry no authority; always re-fetch authenticated status."""
+        identity=self.identity.snapshot()
+        request=Request(self.base+'/scoreboard-device/control-stream',headers={
+            'Accept':'text/event-stream', 'Cache-Control':'no-cache',
+            'Authorization':'Scoreboard '+identity['credential'],
+            'X-Scoreboard-Device-Id':identity['id']})
+        with self.opener.open(request,timeout=25) as response:
+            if response.headers.get_content_type()!='text/event-stream':
+                raise ValueError('Invalid control stream')
+            event=''; size=0
+            while not self.stop.is_set():
+                current=self.identity.snapshot()
+                if not current['platformEnabled'] or current['credential']!=identity['credential'] or self.revoked:
+                    return
+                line=response.readline(65537)
+                if not line: raise OSError('Control stream disconnected')
+                size+=len(line)
+                if size>65536: raise ValueError('Control stream event too large')
+                line=line.decode('utf-8').rstrip('\r\n')
+                if not line:
+                    if event=='control':
+                        with self.operation:
+                            current=self.identity.snapshot()
+                            if current['platformEnabled'] and current['credential']==identity['credential'] and not self.revoked:
+                                self.accept(self.request('GET','/status'))
+                    event=''; size=0
+                elif line.startswith('event:'): event=line[6:].strip()
+
+    def run_control_stream(self):
+        failures=0
+        while not self.stop.is_set():
+            if not self.selection_available():
+                self.stop.wait(1)
+                continue
+            started=time.monotonic()
+            try:
+                self.read_control_stream()
+            except HTTPError as error:
+                code=error.code; error.close()
+                # Older servers remain supported without repeated endpoint probes.
+                if code in (404,405):
+                    self.stop.wait(300)
+                    continue
+            except Exception:
+                pass  # Heartbeat owns availability; stream failures do not blank the board.
+            failures=0 if time.monotonic()-started>30 else min(failures+1,5)
+            self.stop.wait(min(30,2**failures)+random.random())

@@ -19,6 +19,37 @@ class PlatformTests(unittest.TestCase):
         self.status=dict(id=self.identity.public()['id'],name='Board',metadataRevision=1,
                          owner=None,ownershipState='UNOWNED',lifecycle='REGISTERED',revision=0)
     def tearDown(self): self.tmp.cleanup()
+    def test_control_stream_refetches_status_only_on_control_events(self):
+        self.identity.update(platformEnabled=True)
+        response=MagicMock()
+        response.__enter__.return_value=response
+        response.headers.get_content_type.return_value='text/event-stream'
+        response.readline.side_effect=[b': keepalive\n',b'\n',b'event: ignored\n',b'\n',
+                                      b'event: control\n',b'data: {}\n',b'\n',b'']
+        self.client.opener=Mock(); self.client.opener.open.return_value=response
+        self.client.request=Mock(return_value=self.status)
+        with self.assertRaises(OSError): self.client.read_control_stream()
+        self.client.request.assert_called_once_with('GET','/status')
+        request=self.client.opener.open.call_args.args[0]
+        self.assertEqual(request.full_url,'https://example.test/api-next/scoreboard-device/control-stream')
+        self.assertEqual(request.get_header('Accept'),'text/event-stream')
+
+    def test_control_stream_rejects_oversized_event(self):
+        self.identity.update(platformEnabled=True)
+        response=MagicMock(); response.__enter__.return_value=response
+        response.headers.get_content_type.return_value='text/event-stream'
+        response.readline.return_value=b'x'*65537
+        self.client.opener=Mock(); self.client.opener.open.return_value=response
+        self.client.request=Mock()
+        with self.assertRaisesRegex(ValueError,'too large'): self.client.read_control_stream()
+        self.client.request.assert_not_called()
+
+    def test_owned_heartbeat_does_not_poll_pairing(self):
+        self.identity.update(platformEnabled=True)
+        self.client.ensure_registration=Mock()
+        self.client.request=Mock(return_value=self.status|dict(owner={'subject':'owner'}))
+        self.client.tick()
+        self.assertEqual([c.args[1] for c in self.client.request.call_args_list],['/heartbeat'])
     def test_heartbeat_conflict_reopens_same_session_without_replaying_sequence(self):
         self.identity.update(platformEnabled=True)
         session='22222222-2222-4222-8222-222222222222'

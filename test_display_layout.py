@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from live_scoreboard import Feed, Renderer
+from live_scoreboard import Feed, Renderer, display_color
 from live_state import project, timeout_details
 from manual_match import ManualMatch, SETTINGS
 import test_live_state
@@ -22,6 +22,30 @@ class DisplayLayoutTests(unittest.TestCase):
         self.view.update(timeout_seconds=42,timeout_team=1)
         for team,color in zip(self.view['teams'],[(0,0,0),(40,125,255)]):team['color']=color
         self.renderer=Renderer(Path(__file__).parent/'fonts')
+
+    def test_long_team_name_moves_one_pixel_without_touching_other_panels(self):
+        self.view['teams'][0]['name']='A VERY LONG TEAM NAME'
+        with patch('live_scoreboard.time.monotonic',return_value=100):
+            initial=self.renderer.render(self.view)
+        with patch('live_scoreboard.time.monotonic',return_value=100.5):
+            paused=self.renderer.render(self.view)
+        self.assertEqual(initial.tobytes(),paused.tobytes())
+        with patch('live_scoreboard.time.monotonic',return_value=101.09):
+            moved=self.renderer.render(self.view)
+        self.assertEqual(initial.crop((1,0,64,9)).tobytes(),moved.crop((0,0,63,9)).tobytes())
+        self.assertNotEqual(initial.crop((0,0,64,9)).tobytes(),moved.crop((0,0,64,9)).tobytes())
+        self.assertEqual(initial.crop((64,0,192,64)).tobytes(),moved.crop((64,0,192,64)).tobytes())
+        self.assertEqual(initial.crop((0,9,64,64)).tobytes(),moved.crop((0,9,64,64)).tobytes())
+
+    def test_new_team_name_restarts_scroll_at_beginning(self):
+        self.view['teams'][0]['name']='A VERY LONG TEAM NAME'
+        with patch('live_scoreboard.time.monotonic',return_value=100):
+            self.renderer.render(self.view)
+        self.view['teams'][0]['name']='ANOTHER LONG TEAM NAME'
+        with patch('live_scoreboard.time.monotonic',return_value=120):
+            changed=self.renderer.render(self.view)
+            fresh=Renderer(Path(__file__).parent/'fonts').render(self.view)
+        self.assertEqual(changed.tobytes(),fresh.tobytes())
 
     def test_requester_and_countdown_follow_same_effective_event(self):
         self.assertEqual(timeout_details(self.snapshot,[self.event]),dict(seconds=50,team=0))
@@ -69,8 +93,24 @@ class DisplayLayoutTests(unittest.TestCase):
                 frame=self.renderer.render(self.view)
                 for region in ((0,0,64,39),(64,44,128,59)):
                     colours={colour for _,colour in frame.crop(region).getcolors()}
-                    self.assertIn(color,colours)
+                    self.assertIn(display_color(color),colours)
                     self.assertNotIn((235,235,235),colours)
+
+    def test_deep_blue_is_lifted_without_mutating_team_colour(self):
+        for color in ((13,0,255),(8,0,255)):
+            adjusted=display_color(color)
+            self.assertEqual(adjusted[2],255)
+            self.assertGreater(adjusted[0],adjusted[1])
+            self.assertGreater(adjusted[1],80)
+            self.assertGreaterEqual(sum(c*w for c,w in zip(adjusted,(.2126,.7152,.0722))),109.5)
+            self.view['teams'][0].update(color=color,timeouts=1)
+            self.view['timeout_team']=0
+            frame=self.renderer.render(self.view)
+            for region in ((0,0,64,9),(0,10,64,36),(64,44,128,59)):
+                self.assertIn(adjusted,{c for _,c in frame.crop(region).getcolors()})
+            self.assertEqual(self.view['teams'][0]['color'],color)
+        self.assertEqual(display_color((0,255,0)),(0,255,0))
+        self.assertEqual(display_color((40,125,255)),(40,125,255))
 
     def test_near_black_scores_keep_readable_white_outline(self):
         self.view['teams'][0]['color']=(59,59,59)

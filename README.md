@@ -238,6 +238,23 @@ time or control API values.
 
 ## Device configuration and operation
 
+Long team names above the score scroll one pixel at a time at 12 pixels/second,
+after a one-second pause for a newly displayed name. Each name is clipped to its
+own 64-pixel panel; names that fit remain centered and stationary.
+Dim team colours, including saturated deep blue, are lightened toward white
+using a perceived-brightness floor for names, scores and timeout digits. This
+preserves their hue and leaves saved team colours and panel brightness unchanged.
+Near-black teams retain white labels and outlined scores for contrast.
+
+For a direct development deployment, stage a separate `test-<UTC timestamp>`
+directory under `/opt/y-scores/releases/`, retain the current runtime dependencies,
+and run the display/platform tests before switching `current`. Keep the old
+release as `previous` and verify `/healthz` after restarting `y-scores`. Preserve
+`/var/lib/y-scores` and `/etc/y-scores.env`; do not publish the test build through
+the official updater. A `TEST-BUILD.txt` marker identifies the direct test release;
+its official release metadata is retained. Restore the prior code with
+`sudo bash /opt/y-scores/current/scripts/rollback.sh` if necessary.
+
 | Location | Purpose |
 |---|---|
 | `/opt/y-scores/releases/` | Versioned code and isolated Python environments |
@@ -523,6 +540,28 @@ Match Center Device tab. Authenticated outbound heartbeats report bounded
 health observations every 15 seconds. The server opens a boot-bound telemetry
 session; increasing report sequences reject old or reordered reports. No inbound
 Pi control port or SSH credential is required for remote match selection.
+
+Devices also open an authenticated outbound SSE connection to
+`/scoreboard-device/control-stream`. A `control` event invalidates the cached
+assignment: the Pi fetches `/status` and applies the normal authorization and
+local-takeover checks. Push covers fixed matches, court routing, schedules and
+temporary overrides through the same control path. Blank/manual remain local
+controls. Old feed requests finish in the background during a switch.
+The server also schedules notifications for assignment windows and temporary
+override deadlines; the heartbeat remains a fallback if the stream is unavailable.
+Idle stream comments do not refresh authorization; successful authenticated
+status/heartbeat responses still determine availability. Reconnection uses
+backoff and jitter, and a new connection requests current status to recover
+missed changes. Heartbeats remain the 15-second fallback. Servers without the
+endpoint continue working; devices retry discovery every five minutes.
+Paired devices no longer fetch pairing status on every heartbeat. Match snapshot
+polling remains at 200 ms; this change reduces pairing traffic and avoids fast
+assignment polling, but does not yet replace live-score polling.
+
+Roll out the server stream endpoint and its database migration before updating
+devices, and disable proxy buffering for the stream. Existing installation and
+rollback commands still apply: no device settings, PINs or `/etc/y-scores.env`
+changes are required. Rolling back either side restores heartbeat-based switching.
 
 The backend resolves fixed matches and typed court assignments. It returns an
 effective match plus a separate control revision. The Pi acknowledges a revision

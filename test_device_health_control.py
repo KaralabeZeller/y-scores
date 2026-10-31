@@ -22,6 +22,18 @@ class HealthControlTests(unittest.TestCase):
         self.device.platform_available=lambda:True
     def tearDown(self): self.tmp.cleanup()
     def desired(self,revision=1): return dict(revision=revision,mode='MATCH',effectiveMatchId=MATCH,state='PENDING')
+    def test_switch_starts_new_feed_without_waiting_for_old_network_requests(self):
+        self.device.accept_control(self.desired(),True)
+        self.device.remote_request=Mock()
+        old=Mock(); old_thread=Mock()
+        self.device.feed=old; self.device.active_id='old'; self.device.feed_threads=[old_thread]
+        with patch('device_admin.Feed') as factory, patch('device_admin.threading.Thread') as thread:
+            self.device.switch_feed(MATCH)
+        old.stop.set.assert_called_once()
+        old_thread.join.assert_not_called()
+        self.assertIs(self.device.feed,factory.return_value)
+        self.assertEqual(self.device.active_id,MATCH)
+        self.assertEqual(thread.return_value.start.call_count,3)
     def test_team_orientation_persists_without_taking_platform_control(self):
         self.assertTrue(self.device.settings()['swap_teams'])
         self.device.accept_control(self.desired(),True)
@@ -211,12 +223,12 @@ class HealthControlTests(unittest.TestCase):
         status=dict(id=identity.public()['id'],metadataRevision=1,lifecycle='REGISTERED',owner={'subject':'owner'})
         platform.status=status; platform.registered_revision=1
         session=status|dict(telemetrySession=SESSION,desiredControl=self.desired())
-        platform.request=Mock(side_effect=[session,session,dict(state='NONE'),session,dict(state='NONE')])
+        platform.request=Mock(side_effect=[session,session,session])
         platform.tick(); platform.tick()
         calls=platform.request.call_args_list
         self.assertEqual(calls[0].args[:2],('POST','/telemetry-session'))
         self.assertEqual(calls[1].args[2]['reportSequence'],1)
-        self.assertEqual(calls[3].args[2]['reportSequence'],2)
+        self.assertEqual(calls[2].args[2]['reportSequence'],2)
         self.assertEqual(calls[1].args[2]['telemetrySession'],SESSION)
         self.assertEqual(self.device.effective_settings()['match_id'],MATCH)
     def test_upgrade_existing_device_metadata_lost_response_retries_same_revision(self):
